@@ -1,4 +1,6 @@
 #pragma once
+#if !defined(_VISTAH)
+#define _VISTAH
 
 #if !defined(ARDUINO_MQTT)
 #include "esphome.h"
@@ -55,10 +57,10 @@ void disconnectVista() {
 #if !defined(ARDUINO_MQTT)
 namespace esphome {
 namespace alarm_panel {
-
+    
+void * alarmPanelPtr;    
 #if defined(ESPHOME_MQTT)
 std::function<void(const std::string &, JsonObject)> mqtt_callback;
-void * vistaPtr;       
 const char setalarmcommandtopic[] PROGMEM = "/alarm/set"; 
 #endif  
   
@@ -154,8 +156,9 @@ class vistaECPHome: public api::CustomAPIDevice, public time::RealTimeClock {
          partitionKeypads = new char[maxPartitions+1];
          partitions = new uint8_t[maxPartitions];
          partitionStates = new partitionStateType[maxPartitions];
+         alarmPanelPtr=this;         
 #if defined(ESPHOME_MQTT) 
-      vistaPtr=this;
+
       mqtt_callback=on_json_message; 
 #endif           
     }
@@ -502,7 +505,7 @@ serialType getRfSerialLookup(char * serialCode) {
 #if defined(ESPHOME_MQTT) 
 static void on_json_message(const std::string &topic, JsonObject payload) {
     int p=0;
-      vistaECPHome * v=static_cast<vistaECPHome*>(vistaPtr);
+      vistaECPHome * v=static_cast<vistaECPHome*>(alarmPanelPtr);
       if (topic.find(String(FPSTR(setalarmcommandtopic)).c_str())!=std::string::npos) { 
         if (payload.containsKey("partition"))
           p=payload["partition"];
@@ -2238,4 +2241,6 @@ private:
   };
 #if !defined(ARDUINO_MQTT)
 }} //namespaces
+#endif
+
 #endif
