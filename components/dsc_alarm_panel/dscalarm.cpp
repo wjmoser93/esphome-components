@@ -1,13 +1,67 @@
 //for project documenation visit https://github.com/Dilbert66/esphome-dsckeybus
 
-#include "dscalarm.h"
+#include "dscAlarm.h"
+
+
 
 
 #if !defined(ARDUINO_MQTT)
 namespace esphome {
 namespace alarm_panel {
 #endif
+void * alarmPanelPtr;  
 
+#if !defined(ARDUINO_MQTT)
+void publishBinaryState(const char * cstr,uint8_t partition,bool open) {
+  std::string str=cstr;
+  if (partition) str=str + std::to_string(partition);
+  std::vector<binary_sensor::BinarySensor *> bs = App.get_binary_sensors();
+  for (auto *obj : bs ) {
+#if defined(USE_CUSTOM_ID)      
+    std::string id=obj->get_type_id();
+    if (id.compare(str) == 0){
+      obj->publish_state(open) ;
+      break;
+    } else {   
+#endif    
+        std::string name=obj->get_name();
+        if (name.find("(" + str + ")") != std::string::npos){
+            obj->publish_state(open) ;
+            break;;
+        }
+#if defined(USE_CUSTOM_ID)             
+    }
+#endif    
+  }
+}
+    
+void publishTextState(const char * cstr,uint8_t partition,std::string * text) {
+  std::string str=cstr;
+  if (partition) str=str + std::to_string(partition);    
+ std::vector<text_sensor::TextSensor *> ts = App.get_text_sensors();
+ for (auto *obj : ts ) {
+#if defined(USE_CUSTOM_ID)         
+   std::string id=obj->get_type_id();
+    if (id.compare(str) == 0){
+    obj->publish_state(*text) ;
+    return;
+   } else { 
+#endif   
+     std::string name=obj->get_name();
+     if (name.find("(" + str + ")") != std::string::npos ){
+        obj->publish_state(*text) ;
+        return;
+     }
+#if defined(USE_CUSTOM_ID)             
+    }
+#endif
+ }
+}
+#endif
+
+dscKeybusInterface dsc(dscClockPinDefault, dscReadPinDefault, dscWritePinDefault);
+
+bool forceDisconnect;
 
 void disconnectKeybus() {
   dsc.stop();
@@ -16,6 +70,7 @@ void disconnectKeybus() {
   forceDisconnect = true;
 
 }
+
 
 DSCkeybushome::DSCkeybushome(byte dscClockPin = 0, byte dscReadPin = 0, byte dscWritePin = 0)
 : dscClockPin(dscClockPin),

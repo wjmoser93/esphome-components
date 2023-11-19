@@ -36,70 +36,24 @@
 
 #define maxZonesDefault 32 //set to 64 if your system supports it
 #define maxRelays 8
+#include "dscKeybusInterface.h"
 
-//#include "dscKeybusInterface.h"
 
-dscKeybusInterface dsc(dscClockPinDefault, dscReadPinDefault, dscWritePinDefault);
 
 #if !defined(ARDUINO_MQTT)
 namespace esphome {
 namespace alarm_panel {
 #endif
-void * alarmPanelPtr;  
 
+extern void * alarmPanelPtr;
+extern bool forceDisconnect;
+extern void disconnectKeybus();
+extern void publishTextState(const char * cstr,uint8_t partition,std::string * text);
+extern void publishBinaryState(const char * cstr,uint8_t partition,bool open);
 
 #if defined(ESPHOME_MQTT)
 std::function<void(const std::string &, JsonObject)> mqtt_callback;
 #endif
-
-#if !defined(ARDUINO_MQTT)
-void publishBinaryState(const char * cstr,uint8_t partition,bool open) {
-  std::string str=cstr;
-  if (partition) str=str + std::to_string(partition);
-  std::vector<binary_sensor::BinarySensor *> bs = App.get_binary_sensors();
-  for (auto *obj : bs ) {
-#if defined(USE_CUSTOM_ID)      
-    std::string id=obj->get_type_id();
-    if (id.compare(str) == 0){
-      obj->publish_state(open) ;
-      break;
-    } else {   
-#endif    
-        std::string name=obj->get_name();
-        if (name.find("(" + str + ")") != std::string::npos){
-            obj->publish_state(open) ;
-            break;;
-        }
-#if defined(USE_CUSTOM_ID)             
-    }
-#endif    
-  }
-}
-    
-void publishTextState(const char * cstr,uint8_t partition,std::string * text) {
-  std::string str=cstr;
-  if (partition) str=str + std::to_string(partition);    
- std::vector<text_sensor::TextSensor *> ts = App.get_text_sensors();
- for (auto *obj : ts ) {
-#if defined(USE_CUSTOM_ID)         
-   std::string id=obj->get_type_id();
-    if (id.compare(str) == 0){
-    obj->publish_state(*text) ;
-    return;
-   } else { 
-#endif   
-     std::string name=obj->get_name();
-     if (name.find("(" + str + ")") != std::string::npos ){
-        obj->publish_state(*text) ;
-        return;
-     }
-#if defined(USE_CUSTOM_ID)             
-    }
-#endif
- }
-}
-#endif
-
 
 
 #if defined(ESPHOME_MQTT)
@@ -240,7 +194,7 @@ const char *
     ml1
   };
 
-bool forceDisconnect;
+
 
 
 enum panelStatus {
@@ -421,7 +375,7 @@ DSCkeybushome(byte dscClockPin , byte dscReadPin , byte dscWritePin );
   #if defined(ESPHOME_MQTT)
  // mqtt::MQTTClientComponent *mqttId;
   #endif
-  
+
   public:
   zoneType * zoneStatus;
   partitionType partitionStatus[dscPartitions];

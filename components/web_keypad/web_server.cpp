@@ -9,7 +9,7 @@
 
 
 #if defined(USE_DSC_PANEL)
-//#include "esphome/components/dsc_alarm_panel/dscalarm.h"
+#include "esphome/components/dsc_alarm_panel/dscAlarm.h"
 #endif
 #if defined(USE_VISTA_PANEL)
 #include "esphome/components/vista_alarm_panel/vistaalarm.h"
@@ -904,7 +904,7 @@ std::string WebServer::text_json(text::Text *obj, const std::string &value, Json
 #if defined(USE_DSC_PANEL) || defined (USE_VISTA_PANEL)
 
 #ifdef USE_DSC_PANEL
-    // auto * alarmPanel=static_cast<alarm_panel::DSCkeybushome*>(alarm_panel::alarmPanelPtr);
+     auto * alarmPanel=static_cast<alarm_panel::DSCkeybushome*>(alarm_panel::alarmPanelPtr);
 #else     
      auto * alarmPanel=static_cast<extern alarm_panel::vistaECPHome*>(extern alarm_panel::alarmPanelPtr);
 #endif 
@@ -926,7 +926,7 @@ void WebServer::handle_alarm_panel_request(AsyncWebServerRequest *request, const
     }
     if (request->hasParam("keys")) {
       std::string keys = request->getParam("keys")->value().c_str();
-      //alarmPanel->alarm_keypress_partition(keys,partition);
+      alarmPanel->alarm_keypress_partition(keys,partition);
       request->send(200);
       return;      
     }
