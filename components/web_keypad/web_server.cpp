@@ -118,6 +118,10 @@ void WebServer::set_css_include(const char *css_include) { this->css_include_ = 
 void WebServer::set_js_include(const char *js_include) { this->js_include_ = js_include; }
 #endif
 
+void WebServer::set_keypad_config(const char * json_keypad_config) {
+    _json_keypad_config=json_keypad_config;
+}
+
 std::string WebServer::get_config_json() {
   return json::build_json([this](JsonObject root) {
     root["title"] = App.get_friendly_name().empty() ? App.get_name() : App.get_friendly_name();
@@ -125,6 +129,8 @@ std::string WebServer::get_config_json() {
     root["ota"] = this->allow_ota_;
     root["log"] = this->expose_log_;
     root["lang"] = "en";
+    root["config"]=_json_keypad_config;
+    ESP_LOGD("test","json config=%s",_json_keypad_config);
   });
 }
 
@@ -136,7 +142,6 @@ void WebServer::setup() {
   this->events_.onConnect([this](AsyncEventSourceClient *client) {
     // Configure reconnect timeout and send config
     client->send(this->get_config_json().c_str(), "ping", millis(), 30000);
-
     this->entities_iterator_.begin(this->include_internal_);
   });
 
@@ -901,35 +906,83 @@ std::string WebServer::text_json(text::Text *obj, const std::string &value, Json
 #endif
 
 
-#if defined(USE_DSC_PANEL) || defined (USE_VISTA_PANEL)
-
-#ifdef USE_DSC_PANEL
-     auto * alarmPanel=static_cast<alarm_panel::DSCkeybushome*>(alarm_panel::alarmPanelPtr);
-#else     
-     auto * alarmPanel=static_cast<extern alarm_panel::vistaECPHome*>(extern alarm_panel::alarmPanelPtr);
-#endif 
     long int toInt(std::string s, int base) {
       if (s.empty() || std::isspace(s[0])) return 0;
       char * p;
       long int li = strtol(s.c_str(), & p, base);
       return li;
     }
+    /*
+    auto err = deserializeJson(doc, msg);
+        if (!err) {
+          JsonObject root = doc.as<JsonObject>();
+          if (root.containsKey("btn_single_click")) {
+              */
 void WebServer::handle_alarm_panel_request(AsyncWebServerRequest *request, const UrlMatch &match) {
     if (match.method != "set") {
       request->send(404);
       return;
     }
-    int partition=1;
-    if (request->hasParam("partition")) {
-       auto p = request->getParam("partition")->value();        
-       partition = toInt(p.c_str(),10);
+    
+    
+#if defined(USE_DSC_PANEL) || defined (USE_VISTA_PANEL)
+
+#ifdef USE_DSC_PANEL
+     auto * alarmPanel=static_cast< alarm_panel::DSCkeybushome*>(alarm_panel::alarmPanelPtr);
+   #else     
+     auto * alarmPanel=static_cast<alarm_panel::vistaECPHome*>(alarm_panel::alarmPanelPtr);
+#endif 
+    /*
+int params = request->params();
+ESP_LOGD("test", "Params=%d",params);
+for(int i=0;i<params;i++){
+  AsyncWebParameter* p = request->getParam(i);
+  if(p->isFile()){ //p->isPost() is also true
+    ESP_LOGD("test","FILE[%s]: %s, size: %u\n", p->name().c_str(), p->value().c_str(), p->size());
+  } else if(p->isPost()){
+    ESP_LOGD("test","POST[%s]: %s\n", p->name().c_str(), p->value().c_str());
+  } else {
+    ESP_LOGD("test","GET[%s]: %s\n", p->name().c_str(), p->value().c_str());
+  }
+}    
+  */  
+  /*  if (request->hasParam("body", true)) { // This is important, otherwise the sketch will crash if there is no body
+      int partition=1;
+      StaticJsonDocument<100> doc;    
+      auto err = deserializeJson(doc,request->getParam("body",true)->value());
+      if (!err) {
+          JsonObject root = doc.as<JsonObject>();
+          if (root.containsKey("keys")) {
+            std::string keys = root["keys"];
+            alarmPanel->alarm_keypress_partition(keys,partition);
+            request->send(200);
+          }
+          
+      } else 
+         request->send(405, "text/plain", request->getParam("body", true)->value());
+    } else {
+      request->send(406, "text/plain", "No body?!\n");
     }
-    if (request->hasParam("keys")) {
-      std::string keys = request->getParam("keys")->value().c_str();
-      alarmPanel->alarm_keypress_partition(keys,partition);
-      request->send(200);
+    return;
+    */
+    int partition=1; //get default partition
+    if (request->hasParam("partition",true)) {
+       auto p = request->getParam("partition",true)->value(); 
+       partition = toInt(p.c_str(),10);
+      //ESP_LOGD("test","got partition %d",partition);         
+    }
+    if (request->hasParam("keys",true)) {
+      std::string keys = request->getParam("keys",true)->value().c_str();
+      ESP_LOGD("test","got keys %s",keys.c_str());
+      if (alarmPanel != NULL) {
+        alarmPanel->alarm_keypress_partition(keys,partition);
+        request->send(200);
+      } else 
+          request->send(404);
+            
       return;      
     }
+    
   request->send(404);
 }
 

@@ -103,7 +103,7 @@ class WebServer : public Controller, public Component, public AsyncWebHandler {
    * @param expose_log.
    */
   void set_expose_log(bool expose_log) { this->expose_log_ = expose_log; }
-
+  void set_keypad_config(const char * json_keypad_config);
   // ========== INTERNAL METHODS ==========
   // (In most use cases you won't need these)
   /// Setup the internal web server and register handlers.
@@ -289,6 +289,7 @@ void handle_alarm_panel_request(AsyncWebServerRequest *request, const UrlMatch &
   web_server_base::WebServerBase *base_;
   AsyncEventSource events_{"/events"};
   ListEntitiesIterator entities_iterator_;
+  const char * _json_keypad_config;
 #if USE_WEBSERVER_VERSION == 1
   const char *css_url_{nullptr};
   const char *js_url_{nullptr};

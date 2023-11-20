@@ -6,11 +6,15 @@
 #include "esphome/core/defines.h"
 #include "esphome/core/component.h"
 #include "esphome/core/application.h"
+
 #if defined(USE_MQTT)
 #include "esphome/components/mqtt/mqtt_client.h"
-#else
+#endif
+
+#if defined(USE_API)
 #include "esphome/components/api/custom_api_device.h"
 #endif
+
 #if defined(USE_TIME)
 #include "esphome/components/time/real_time_clock.h"
 #endif
@@ -18,6 +22,7 @@
 #if defined(USE_MQTT)
 #define ESPHOME_MQTT
 #endif
+
 #endif
 
 #ifdef ESP32
@@ -211,26 +216,28 @@ enum panelStatus {
 
 
 
-#if defined(ESPHOME_MQTT)
+#if !defined(USE_API) 
+
 #if defined(USE_TIME)
 class DSCkeybushome:  public time::RealTimeClock {
 #else
 class DSCkeybushome:  public PollingComponent {
 #endif
-#elif defined(ARDUINO_MQTT)
+
+#elif defined(ARDUINO_MQTT) 
 class DSCkeybushome { 
 #else
+    
 #if defined(USE_TIME)
 class DSCkeybushome: public api::CustomAPIDevice, public time::RealTimeClock {
-#else
+#else 
 class DSCkeybushome: public api::CustomAPIDevice, public PollingComponent {
 #endif
+
 #endif
+
 public:
 DSCkeybushome(byte dscClockPin , byte dscReadPin , byte dscWritePin );
-
-
-  
 
   std:: function < void(uint8_t, bool) > zoneStatusChangeCallback;
   std:: function < void(std::string ) > systemStatusChangeCallback;

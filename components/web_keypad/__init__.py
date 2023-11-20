@@ -1,4 +1,6 @@
 import gzip
+import json
+import yaml
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import web_server_base
@@ -27,6 +29,8 @@ from esphome.const import (
 from esphome.core import CORE, coroutine_with_priority
 
 AUTO_LOAD = ["json", "web_server_base"]
+
+CONF_CONFIG ="keypad_config"
 
 web_server_ns = cg.esphome_ns.namespace("web_server")
 WebServer = web_server_ns.class_("WebServer", cg.Component, cg.Controller)
@@ -69,6 +73,7 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_CSS_INCLUDE): cv.file_,
             cv.Optional(CONF_JS_URL): cv.string,
             cv.Optional(CONF_JS_INCLUDE): cv.file_,
+            cv.Optional(CONF_CONFIG):cv.file_,
             cv.Optional(CONF_ENABLE_PRIVATE_NETWORK_ACCESS, default=True): cv.boolean,
             cv.Optional(CONF_AUTH): cv.Schema(
                 {
@@ -178,3 +183,11 @@ async def to_code(config):
     cg.add(var.set_include_internal(config[CONF_INCLUDE_INTERNAL]))
     if CONF_LOCAL in config and config[CONF_LOCAL]:
         cg.add_define("USE_WEBSERVER_LOCAL")
+        
+    if CONF_CONFIG in config and config[CONF_CONFIG]:
+        with open( CORE.relative_config_path(config[CONF_CONFIG]),'r') as file:
+            configuration = yaml.safe_load(file)
+        output = json.dumps(configuration)
+        cg.add(var.set_keypad_config(output))
+         
+
