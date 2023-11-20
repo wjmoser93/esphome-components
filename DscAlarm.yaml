@@ -43,6 +43,10 @@ dsc_alarm_panel:
   
 
   clean_build: "false" #default is false.  set to true if getting duplication errors in linking step.  
+  
+web_keypad:
+  port: 80  
+  keypad_config: ./configs.txt  
 
 esp32: 
   board: nodemcu-32s
@@ -59,9 +63,9 @@ esp32:
 #copy the code to directory "my_components" in your main esphome directory   
 # see here for more info: https://esphome.io/components/external_components       
 external_components:
-  - source: github://Dilbert66/esphome-components@main #uncomment to use github repository
+  - source: github://Dilbert66/esphome-components@keypad #uncomment to use github repository
   #- source:  my_components #uncomment to use local directory 
-    components: [dsc_alarm_panel,binary_sensor,text_sensor] 
+    components: [dsc_alarm_panel,binary_sensor,text_sensor,web_keypad] 
     refresh: 10min
   
 esphome:
