@@ -43,7 +43,9 @@
 #define maxRelays 8
 #include "dscKeybusInterface.h"
 
-
+extern dscKeybusInterface dsc;
+extern bool forceDisconnect;
+extern void disconnectKeybus();
 
 #if !defined(ARDUINO_MQTT)
 namespace esphome {
@@ -51,13 +53,12 @@ namespace alarm_panel {
 #endif
 
 extern void * alarmPanelPtr;
-extern bool forceDisconnect;
-extern void disconnectKeybus();
+
 extern void publishTextState(const char * cstr,uint8_t partition,std::string * text);
 extern void publishBinaryState(const char * cstr,uint8_t partition,bool open);
 
 #if defined(ESPHOME_MQTT)
-std::function<void(const std::string &, JsonObject)> mqtt_callback;
+extern std::function<void(const std::string &, JsonObject)> mqtt_callback;
 #endif
 
 

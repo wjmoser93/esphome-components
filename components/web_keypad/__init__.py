@@ -1,6 +1,7 @@
 import gzip
 import json
 import yaml
+import requests
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import web_server_base
@@ -30,7 +31,8 @@ from esphome.core import CORE, coroutine_with_priority
 
 AUTO_LOAD = ["json", "web_server_base"]
 
-CONF_CONFIG ="keypad_config"
+CONF_CONFIG ="config_local"
+CONF_KEYPAD_URL="config_url"
 
 web_server_ns = cg.esphome_ns.namespace("web_server")
 WebServer = web_server_ns.class_("WebServer", cg.Component, cg.Controller)
@@ -74,6 +76,7 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_JS_URL): cv.string,
             cv.Optional(CONF_JS_INCLUDE): cv.file_,
             cv.Optional(CONF_CONFIG):cv.file_,
+            cv.Optional(CONF_KEYPAD_URL):cv.string,            
             cv.Optional(CONF_ENABLE_PRIVATE_NETWORK_ACCESS, default=True): cv.boolean,
             cv.Optional(CONF_AUTH): cv.Schema(
                 {
@@ -112,16 +115,17 @@ def build_index_html(config) -> str:
     html = "<!DOCTYPE html><html><head><meta charset=UTF-8><link rel=icon href=data:>"
     css_include = config.get(CONF_CSS_INCLUDE)
     js_include = config.get(CONF_JS_INCLUDE)
+    js_url = config.get(CONF_JS_URL)    
     if css_include:
         html += "<link rel=stylesheet href=/0.css>"
     if config[CONF_CSS_URL]:
         html += f'<link rel=stylesheet href="{config[CONF_CSS_URL]}">'
     html += "</head><body>"
-    if js_include:
+    if js_include or js_url:
         html += "<script type=module src=/0.js></script>"
     html += "<esp-app></esp-app>"
-    if config[CONF_JS_URL]:
-        html += f'<script src="{config[CONF_JS_URL]}"></script>'
+    #if config[CONF_JS_URL]:
+     #   html += f'<script src="{config[CONF_JS_URL]}"></script>'
     html += "</body></html>"
     return html
 
@@ -175,15 +179,26 @@ async def to_code(config):
         path = CORE.relative_config_path(config[CONF_CSS_INCLUDE])
         with open(file=path, encoding="utf-8") as css_file:
             add_resource_as_progmem("CSS_INCLUDE", css_file.read())
+    if CONF_JS_URL in config and config[CONF_JS_URL]:
+        cg.add_define("USE_WEBSERVER_JS_INCLUDE")
+        response = requests.get(config[CONF_JS_URL])
+        add_resource_as_progmem("JS_INCLUDE", response.text)             
     if CONF_JS_INCLUDE in config:
         cg.add_define("USE_WEBSERVER_JS_INCLUDE")
         path = CORE.relative_config_path(config[CONF_JS_INCLUDE])
         with open(file=path, encoding="utf-8") as js_file:
             add_resource_as_progmem("JS_INCLUDE", js_file.read())
+           
     cg.add(var.set_include_internal(config[CONF_INCLUDE_INTERNAL]))
     if CONF_LOCAL in config and config[CONF_LOCAL]:
         cg.add_define("USE_WEBSERVER_LOCAL")
         
+    if CONF_KEYPAD_URL in config and config[CONF_KEYPAD_URL]:
+        response = requests.get(config[CONF_KEYPAD_URL])
+        configuration = yaml.safe_load(response.text)
+        output = json.dumps(configuration)
+        cg.add(var.set_keypad_config(output))        
+       
     if CONF_CONFIG in config and config[CONF_CONFIG]:
         with open( CORE.relative_config_path(config[CONF_CONFIG]),'r') as file:
             configuration = yaml.safe_load(file)

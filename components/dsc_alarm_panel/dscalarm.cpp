@@ -3,13 +3,26 @@
 #include "dscAlarm.h"
 
 
+dscKeybusInterface dsc(dscClockPinDefault, dscReadPinDefault, dscWritePinDefault);
 
+bool forceDisconnect;
+
+void disconnectKeybus() {
+  dsc.stop();
+  dsc.keybusConnected = false;
+  dsc.statusChanged = false;
+  forceDisconnect = true;
+
+}
 
 #if !defined(ARDUINO_MQTT)
 namespace esphome {
 namespace alarm_panel {
 #endif
 void * alarmPanelPtr;  
+#if defined(ESPHOME_MQTT)
+std::function<void(const std::string &, JsonObject)> mqtt_callback;
+#endif
 
 #if !defined(ARDUINO_MQTT)
 void publishBinaryState(const char * cstr,uint8_t partition,bool open) {
@@ -59,17 +72,7 @@ void publishTextState(const char * cstr,uint8_t partition,std::string * text) {
 }
 #endif
 
-dscKeybusInterface dsc(dscClockPinDefault, dscReadPinDefault, dscWritePinDefault);
 
-bool forceDisconnect;
-
-void disconnectKeybus() {
-  dsc.stop();
-  dsc.keybusConnected = false;
-  dsc.statusChanged = false;
-  forceDisconnect = true;
-
-}
 
 
 DSCkeybushome::DSCkeybushome(byte dscClockPin = 0, byte dscReadPin = 0, byte dscWritePin = 0)
@@ -614,6 +617,10 @@ void DSCkeybushome::begin() {
 
   void DSCkeybushome::alarm_keypress_partition(std::string keystring, int partition) {
     if (!partition) partition = defaultPartition;
+    if (keystring=="R") {
+        forceRefresh=true;
+        return;
+    }
 #if !defined(ARDUINO_MQTT)         
     if (debug > 0) ESP_LOGI("Debug", "Writing keys: %s to partition %d, partition disabled: %d , partition locked: %d", keystring.c_str(), partition,dsc.disabled[partition - 1],partitionStatus[partition-1].locked);
     #else
@@ -632,7 +639,7 @@ void DSCkeybushome::begin() {
   }
 
 #if defined(ESPHOME_MQTT) 
-static DSCkeybushome::void on_json_message(const std::string &topic, JsonObject payload) {
+void DSCkeybushome::on_json_message(const std::string &topic, JsonObject payload) {
     int p=0;
       DSCkeybushome * d=static_cast<DSCkeybushome*>(alarmPanelPtr);
       if (topic.find(String(FPSTR(setalarmcommandtopic)).c_str())!=std::string::npos) { 
@@ -1333,7 +1340,7 @@ void DSCkeybushome::update()  {
           if (dsc.ready[partition]  && !dsc.exitDelay[partition]) {
             partitionStatusChangeCallback( String(FPSTR(STATUS_OFF)).c_str(), partition + 1);
             panelStatusChangeCallback(rdyStatus, true, partition + 1);
-              partitionStatus[partition].ready=true;  
+            partitionStatus[partition].ready=true;  
           } else if (!dsc.exitDelay[partition]) {
             if (!dsc.armed[partition] ) {
                 partitionStatusChangeCallback( String(FPSTR(STATUS_NOT_READY)).c_str(), partition + 1);
