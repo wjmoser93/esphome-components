@@ -64,12 +64,16 @@ external_components:
     components: [dsc_alarm_panel,binary_sensor,text_sensor,web_keypad] 
     refresh: 10min
  
+## each included files will be downloaded automatically and compiled within the flash.  
+## there will be no need for internet access when running.
 web_keypad:
   port: 80  
-  config_url: https://dilbert66.github.io/config_files/config_dsc.yml
+  partitions: 1 # a keypad will be shown for each partition
+  config_url: https://dilbert66.github.io/config_files/config_dsc.yml  
   js_url: https://dilbert66.github.io/js_files/www.js
+  ## If you prefer to use locally hosted compile time files comment two lines above and uncomment below
   #js_include: ./www.js    
-  #config_local: ./config_dsc.yml    
+  #config_local: ./config_dsc.yml     
   
 esphome:
   name: $name

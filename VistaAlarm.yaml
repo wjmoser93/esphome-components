@@ -82,10 +82,14 @@ external_components:
     components: [vista_alarm_panel,binary_sensor,text_sensor] 
     refresh: 10min
  
+## each included files will be downloaded automatically and compiled within the flash.  
+## there will be no need for internet access when running. 
 web_keypad:
-  port: 80  
+  port: 80 
+  partitions: 1  # a keypad will be shown for each partition
   config_url: https://dilbert66.github.io/config_files/config_vista.yml
   js_url: https://dilbert66.github.io/js_files/www.js
+  ## If you prefer to use locally hosted compile time files comment two lines above and uncomment below  
   #js_include: ./www.js    
   #config_local: ./config_vista.yml    
     
