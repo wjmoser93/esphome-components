@@ -66,6 +66,8 @@ external_components:
  
 ## each included files will be downloaded automatically and compiled within the flash.  
 ## there will be no need for internet access when running.
+#For www.js build details and source: https://github.com/Dilbert66/esphome-webserver-custom/tree/keypad
+#Component source: https://github.com/Dilbert66/esphome-components/tree/keypad/components/web_keypad
 web_keypad:
   port: 80  
   partitions: 1 # a keypad will be shown for each partition
