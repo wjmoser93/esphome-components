@@ -102,6 +102,7 @@ class WebServer : public Controller, public Component, public AsyncWebHandler {
    *
    * @param expose_log.
    */
+  void set_partitions(uint8_t partitions) { this->partitions_=partitions;}
   void set_expose_log(bool expose_log) { this->expose_log_ = expose_log; }
   void set_keypad_config(const char * json_keypad_config);
   // ========== INTERNAL METHODS ==========
@@ -303,6 +304,7 @@ void handle_alarm_panel_request(AsyncWebServerRequest *request, const UrlMatch &
   bool include_internal_{false};
   bool allow_ota_{true};
   bool expose_log_{true};
+  uint8_t partitions_{1};
 #ifdef USE_ESP32
   std::deque<std::function<void()>> to_schedule_;
   SemaphoreHandle_t to_schedule_lock_;

@@ -129,8 +129,8 @@ std::string WebServer::get_config_json() {
     root["ota"] = this->allow_ota_;
     root["log"] = this->expose_log_;
     root["lang"] = "en";
-    root["config"]=_json_keypad_config;
-    ESP_LOGD("test","json config=%s",_json_keypad_config);
+    root["partitions"]=this->partitions_;
+   // ESP_LOGD("test","json config=%s",_json_keypad_config);
   });
 }
 
@@ -919,12 +919,10 @@ std::string WebServer::text_json(text::Text *obj, const std::string &value, Json
           if (root.containsKey("btn_single_click")) {
               */
 void WebServer::handle_alarm_panel_request(AsyncWebServerRequest *request, const UrlMatch &match) {
-    if (match.method != "set") {
+    if (match.method != "set" && match.method != "getconfig") {
       request->send(404);
       return;
     }
-    
-    
 #if defined(USE_DSC_PANEL) || defined (USE_VISTA_PANEL)
 
 #ifdef USE_DSC_PANEL
@@ -932,6 +930,8 @@ void WebServer::handle_alarm_panel_request(AsyncWebServerRequest *request, const
    #else     
      auto * alarmPanel=static_cast<alarm_panel::vistaECPHome*>(alarm_panel::alarmPanelPtr);
 #endif 
+
+
     /*
 int params = request->params();
 ESP_LOGD("test", "Params=%d",params);
@@ -965,6 +965,13 @@ for(int i=0;i<params;i++){
     }
     return;
     */
+     if (request->method() == HTTP_GET) {
+      std::string data = _json_keypad_config;
+      request->send(200, "application/json", data.c_str());
+      return;
+    }
+    
+    
     int partition=1; //get default partition
     if (request->hasParam("partition",true)) {
        auto p = request->getParam("partition",true)->value(); 

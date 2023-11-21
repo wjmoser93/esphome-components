@@ -33,6 +33,7 @@ AUTO_LOAD = ["json", "web_server_base"]
 
 CONF_CONFIG ="config_local"
 CONF_KEYPAD_URL="config_url"
+CONF_PARTITIONS="partitions"
 
 web_server_ns = cg.esphome_ns.namespace("web_server")
 WebServer = web_server_ns.class_("WebServer", cg.Component, cg.Controller)
@@ -74,6 +75,7 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_CSS_URL): cv.string,
             cv.Optional(CONF_CSS_INCLUDE): cv.file_,
             cv.Optional(CONF_JS_URL): cv.string,
+            cv.Optional(CONF_PARTITIONS): cv.int_,            
             cv.Optional(CONF_JS_INCLUDE): cv.file_,
             cv.Optional(CONF_CONFIG):cv.file_,
             cv.Optional(CONF_KEYPAD_URL):cv.string,            
@@ -169,6 +171,8 @@ async def to_code(config):
         cg.add(var.set_js_url(config[CONF_JS_URL]))
     cg.add(var.set_allow_ota(config[CONF_OTA]))
     cg.add(var.set_expose_log(config[CONF_LOG]))
+    if CONF_PARTITIONS in config:
+        cg.add(var.set_partitions(config[CONF_PARTITIONS]))   
     if config[CONF_ENABLE_PRIVATE_NETWORK_ACCESS]:
         cg.add_define("USE_WEBSERVER_PRIVATE_NETWORK_ACCESS")
     if CONF_AUTH in config:
