@@ -720,7 +720,7 @@ void vistaECPHome::update()  {
 #endif 
         
        static unsigned long refreshFlagsTime;
-       if ((!firstRun && vista.keybusConnected && millis() - refreshFlagsTime > 60000  && !vista.statusFlags.programMode) || forceRefreshGlobal) {
+       if (((!firstRun && vista.keybusConnected && millis() - refreshFlagsTime > 60000 ) || forceRefreshGlobal )&&  !vista.statusFlags.programMode) {
               forceRefreshZones=true;
               forceRefreshGlobal=false;
               refreshFlagsTime=millis();
@@ -730,6 +730,7 @@ void vistaECPHome::update()  {
                    
 
              }
+             ESP_LOGD("test","Force refresh....");
            
       }
     
@@ -1179,8 +1180,9 @@ void vistaECPHome::update()  {
 
             //publish status on change only - keeps api traffic down
             previousLightState = partitionStates[partition - 1].previousLightState;
-            forceRefresh=partitionStates[partition - 1].refreshLights ;
             
+            forceRefresh=partitionStates[partition - 1].refreshLights ;
+           // ESP_LOGD("test","refreshing partition statuse partitions: %d,force refresh=%d",partition,forceRefresh);
             if (currentLightState.fire != previousLightState.fire || forceRefresh)
               statusChangeCallback(sfire, currentLightState.fire, partition);
             if (currentLightState.alarm != previousLightState.alarm || forceRefresh)
