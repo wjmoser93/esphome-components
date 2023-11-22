@@ -295,6 +295,7 @@ binary_sensor:
 # armed away status
 # armed away id code = arma_ + partition number 
   - platform: template
+    id_code: arma_1
     name: "Away (arma_1)"
     publish_initial_state: true
 
@@ -313,7 +314,7 @@ binary_sensor:
 
 #Partition 2 example
   - platform: template
-    id_code: arma_1  
+    id_code: arm_2  
     name: "Armed (arm_2)" 
     publish_initial_state: true    
 
