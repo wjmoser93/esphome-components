@@ -539,11 +539,11 @@ void Vista::writeChars() {
   if (!charAvail() && retries == 0) return;
 
   //if retries are getting out of control with no successfull callback
-  //just clear the buffer
-  if (retries > 5) {
+  //just send the next bytes and stop with the current expected one
+  if (retries > 2) {
     retries = 0;
     expectByte = 0;
-    outbufIdx = inbufIdx;
+    //outbufIdx = inbufIdx;
     return;
   }
   sending = true;

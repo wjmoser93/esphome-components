@@ -71,6 +71,7 @@ external_components:
 web_keypad:
   port: 80  
   partitions: 1 # a keypad will be shown for each partition
+  log: false
   config_url: https://dilbert66.github.io/config_files/config_dsc.yml  
   js_url: https://dilbert66.github.io/js_files/www.js
   ## If you prefer to use locally hosted compile time files comment two lines above and uncomment below
