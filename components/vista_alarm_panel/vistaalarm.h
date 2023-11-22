@@ -313,7 +313,7 @@ private:
        int mask;
     };
 
-bool zoneActive(int zone);
+bool zoneActive(uint32_t zone);
 
 
 std::map<uint32_t,zoneType> extZones;

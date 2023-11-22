@@ -123,7 +123,7 @@ void publishTextState(const char * cstr,uint8_t partition,std::string * text) {
     
 
 
-bool vistaECPHome::zoneActive(int zone) {
+bool vistaECPHome::zoneActive(uint32_t zone) {
 
   std::string str = "z" + std::to_string(zone) ;
   std::vector<binary_sensor::BinarySensor *> bs = App.get_binary_sensors();
