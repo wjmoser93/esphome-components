@@ -34,6 +34,7 @@ AUTO_LOAD = ["json", "web_server_base"]
 CONF_CONFIG ="config_local"
 CONF_KEYPAD_URL="config_url"
 CONF_PARTITIONS="partitions"
+isLocal = True
 
 web_server_ns = cg.esphome_ns.namespace("web_server")
 WebServer = web_server_ns.class_("WebServer", cg.Component, cg.Controller)
@@ -114,6 +115,7 @@ CONFIG_SCHEMA = cv.All(
 
 
 def build_index_html(config) -> str:
+    global isLocal
     html = "<!DOCTYPE html><html><head><meta charset=UTF-8><link rel=icon href=data:>"
     css_include = config.get(CONF_CSS_INCLUDE)
     js_include = config.get(CONF_JS_INCLUDE)
@@ -123,11 +125,11 @@ def build_index_html(config) -> str:
     if config[CONF_CSS_URL]:
         html += f'<link rel=stylesheet href="{config[CONF_CSS_URL]}">'
     html += "</head><body>"
-    if js_include or js_url:
+    if js_include or (js_url and isLocal):
         html += "<script type=module src=/0.js></script>"
-    html += "<esp-app></esp-app>"
-    #if config[CONF_JS_URL]:
-     #   html += f'<script src="{config[CONF_JS_URL]}"></script>'
+    if config[CONF_JS_URL] and not isLocal:
+        html += f'<script src="{config[CONF_JS_URL]}"></script>'
+    html += "<esp-app></esp-app>"     
     html += "</body></html>"
     return html
 
@@ -151,11 +153,15 @@ def add_resource_as_progmem(
 
 @coroutine_with_priority(40.0)
 async def to_code(config):
+    global isLocal
     paren = await cg.get_variable(config[CONF_WEB_SERVER_BASE_ID])
 
     var = cg.new_Pvariable(config[CONF_ID], paren)
     await cg.register_component(var, config)
-
+    if CONF_LOCAL in config and not config[CONF_LOCAL]:
+        isLocal = False
+        cg.add_define("USE_KEYPAD_LOCAL")        
+        
     cg.add_define("USE_WEBSERVER")
     version = config[CONF_VERSION]
 
@@ -183,10 +189,12 @@ async def to_code(config):
         path = CORE.relative_config_path(config[CONF_CSS_INCLUDE])
         with open(file=path, encoding="utf-8") as css_file:
             add_resource_as_progmem("CSS_INCLUDE", css_file.read())
-    if CONF_JS_URL in config and config[CONF_JS_URL]:
+            
+    if CONF_JS_URL in config and config[CONF_JS_URL] and isLocal:
         cg.add_define("USE_WEBSERVER_JS_INCLUDE")
         response = requests.get(config[CONF_JS_URL])
-        add_resource_as_progmem("JS_INCLUDE", response.text)             
+        add_resource_as_progmem("JS_INCLUDE", response.text)   
+        
     if CONF_JS_INCLUDE in config:
         cg.add_define("USE_WEBSERVER_JS_INCLUDE")
         path = CORE.relative_config_path(config[CONF_JS_INCLUDE])
@@ -194,19 +202,24 @@ async def to_code(config):
             add_resource_as_progmem("JS_INCLUDE", js_file.read())
            
     cg.add(var.set_include_internal(config[CONF_INCLUDE_INTERNAL]))
-    if CONF_LOCAL in config and config[CONF_LOCAL]:
-        cg.add_define("USE_WEBSERVER_LOCAL")
+    #if CONF_LOCAL in config and config[CONF_LOCAL]:
+     #   cg.add_define("USE_WEBSERVER_LOCAL")
         
     if CONF_KEYPAD_URL in config and config[CONF_KEYPAD_URL]:
-        response = requests.get(config[CONF_KEYPAD_URL])
-        configuration = yaml.safe_load(response.text)
-        output = json.dumps(configuration)
-        cg.add(var.set_keypad_config(output))        
+        if isLocal: 
+            response = requests.get(config[CONF_KEYPAD_URL])
+            configuration = yaml.safe_load(response.text)
+            output = json.dumps(configuration)
+            cg.add(var.set_keypad_config(output)) 
+        else:
+            cg.add(var.set_keypad_config_url(config[CONF_KEYPAD_URL]));
        
     if CONF_CONFIG in config and config[CONF_CONFIG]:
-        with open( CORE.relative_config_path(config[CONF_CONFIG]),'r') as file:
-            configuration = yaml.safe_load(file)
-        output = json.dumps(configuration)
-        cg.add(var.set_keypad_config(output))
-         
+        if isLocal:
+            with open( CORE.relative_config_path(config[CONF_CONFIG]),'r') as file:
+                configuration = yaml.safe_load(file)
+            output = json.dumps(configuration)
+            cg.add(var.set_keypad_config(output))
+        else:
+             cg.add(var.set_keypad_config_url(config[CONF_KEYPAD_URL]));
 

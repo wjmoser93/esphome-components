@@ -122,6 +122,10 @@ void WebServer::set_keypad_config(const char * json_keypad_config) {
     _json_keypad_config=json_keypad_config;
 }
 
+void WebServer::set_keypad_config_url(const char * keypad_config_url) {
+      _keypad_config_url=keypad_config_url;
+  };  
+
 std::string WebServer::get_config_json() {
   return json::build_json([this](JsonObject root) {
     root["title"] = App.get_friendly_name().empty() ? App.get_name() : App.get_friendly_name();
