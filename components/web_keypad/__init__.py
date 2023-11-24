@@ -34,6 +34,7 @@ AUTO_LOAD = ["json", "web_server_base"]
 CONF_CONFIG ="config_local"
 CONF_KEYPAD_URL="config_url"
 CONF_PARTITIONS="partitions"
+CONF_SERVICE_LAMBDA="service_lambda"
 
 web_server_ns = cg.esphome_ns.namespace("web_server")
 WebServer = web_server_ns.class_("WebServer", cg.Component, cg.Controller)
@@ -71,14 +72,15 @@ CONFIG_SCHEMA = cv.All(
         {
             cv.GenerateID(): cv.declare_id(WebServer),
             cv.Optional(CONF_PORT, default=80): cv.port,
-            cv.Optional(CONF_VERSION, default=2): cv.one_of(1, 2, int=True),
+            cv.Optional(CONF_VERSION, default=2): cv.one_of(2, int=True),
             cv.Optional(CONF_CSS_URL): cv.string,
             cv.Optional(CONF_CSS_INCLUDE): cv.file_,
             cv.Optional(CONF_JS_URL): cv.string,
             cv.Optional(CONF_PARTITIONS): cv.int_,            
             cv.Optional(CONF_JS_INCLUDE): cv.file_,
             cv.Optional(CONF_CONFIG):cv.file_,
-            cv.Optional(CONF_KEYPAD_URL):cv.string,            
+            cv.Optional(CONF_KEYPAD_URL):cv.string,  
+            cv.Optional(CONF_SERVICE_LAMBDA): cv.lambda_,
             cv.Optional(CONF_ENABLE_PRIVATE_NETWORK_ACCESS, default=True): cv.boolean,
             cv.Optional(CONF_AUTH): cv.Schema(
                 {
@@ -163,6 +165,12 @@ async def to_code(config):
     cg.add_define("USE_WEBSERVER")
     cg.add_define("USE_WEBSERVER_PORT", config[CONF_PORT])
     cg.add_define("USE_WEBSERVER_VERSION", version)
+    
+    if lambda_config := config.get(CONF_SERVICE_LAMBDA):
+        lambda_ = await cg.process_lambda(
+            lambda_config, [(cg.std_string, "keys"),(cg.uint8, "partition")], return_type=None
+        )
+        cg.add(var.set_service_lambda(lambda_))    
     if version == 2:
         # Don't compress the index HTML as the data sizes are almost the same.
         add_resource_as_progmem("INDEX_HTML", build_index_html(config), compress=False)

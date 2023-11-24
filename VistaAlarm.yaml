@@ -94,7 +94,11 @@ web_keypad:
   js_url: https://dilbert66.github.io/js_files/www.js
   ## If you prefer to use locally hosted compile time files comment two lines above and uncomment below  
   #js_include: ./www.js    
-  #config_local: ./config_vista.yml    
+  #config_local: ./config_vista.yml   
+  
+   ## custom function call to send keypresses if other than dsc/vista components are used. Parmeters are a string keys and int partition
+  #service_lambda: |- 
+      #$panelId->alarm_keypress_partition(keys,partition);    
     
 #you can remove/disable this section if you don't want your panel time updated automatically. 
 #interval:
