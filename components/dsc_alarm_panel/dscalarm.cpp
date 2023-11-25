@@ -783,15 +783,18 @@ void DSCkeybushome::on_json_message(const std::string &topic, JsonObject payload
       if (dsc.panelData[panelByte] != 0) {
         zonesEnabled = true;
         for (byte zoneBit = 0; zoneBit < 8; zoneBit++) {
+
           zone = (zoneBit + startZone) + ((panelByte - inputByte) * 8) - 1;
           if (zone >= maxZones) continue;
           if (bitRead(dsc.panelData[panelByte], zoneBit)) {
             zoneStatus[zone].partition = partition;               
             zoneStatus[zone].enabled = true;
+         ESP_LOGD("test","zone=%d,status=%d,partition=%d",zone+1,zoneStatus[zone].enabled,partition);
           } else if (zoneStatus[zone].partition==partition) {
                 zoneStatus[zone].enabled = false;
+
           }
-         
+
         }
       }
     }
@@ -801,6 +804,7 @@ void DSCkeybushome::on_json_message(const std::string &topic, JsonObject payload
   bool DSCkeybushome::getEnabledZonesE6(byte inputByte, byte startZone, byte partitionByte) {
     bool zonesEnabled = false;
     byte zone;
+
     byte partition = getPanelBitNumber(partitionByte, 1);
     for (byte panelByte = inputByte; panelByte <= inputByte + 3; panelByte++) {
       if (dsc.panelData[panelByte] != 0) {
@@ -809,11 +813,13 @@ void DSCkeybushome::on_json_message(const std::string &topic, JsonObject payload
           zone = (zoneBit + startZone) + ((panelByte - inputByte) * 8) - 1;
           if (zone >= maxZones) continue;
           if (bitRead(dsc.panelData[panelByte], zoneBit)) {
-            zoneStatus[zone].partition = partition;               
+            zoneStatus[zone].partition = partition+1;               
             zoneStatus[zone].enabled = true;
-          } else if (zoneStatus[zone].partition==partition) {
+         ESP_LOGD("test","zone=%d,status=%d,partition=%d",zone+1,zoneStatus[zone].enabled,partition+1);
+          } else if (zoneStatus[zone].partition==partition+1) {
                 zoneStatus[zone].enabled = false;
           }
+
         }
       }
     }
@@ -1073,7 +1079,7 @@ void DSCkeybushome::on_json_message(const std::string &topic, JsonObject payload
     for (byte zoneGroup = 0; zoneGroup < dscZones; zoneGroup++) {
       for (byte zoneBit = 0; zoneBit < 8; zoneBit++) {
         zone = zoneBit + (zoneGroup * 8);
-        if (!(zoneStatus[zone].partition == partition + 1 && zoneStatus[zone].enabled) || zone >= maxZones) continue;
+        if (!(zoneStatus[zone].partition == partition && zoneStatus[zone].enabled) || zone >= maxZones) continue;
         if (bitRead(programZones[zoneGroup], zoneBit)) {
           zoneStatus[zone].bypassed = true;
         } else {
@@ -1158,7 +1164,7 @@ void DSCkeybushome::update()  {
       processStatus();
       for (byte partition = 0; partition < dscPartitions; partition++) {
         if (dsc.disabled[partition] || dsc.status[partition] != 0xA0) continue;
-        getBypassZones(partition);
+        getBypassZones(partition+1);
         setStatus(partition, true);
       }
 
@@ -2204,7 +2210,7 @@ void DSCkeybushome::update()  {
     switch (dsc.panelData[0]) {
     case 0x0F:
     case 0x0A:
-      processProgramZones(4);
+      processProgramZones(4,0);
       if (dsc.panelData[3] == 0xBA)
         processLowBatteryZones();
       if (dsc.panelData[3] == 0xA1) { //system status
@@ -2221,7 +2227,7 @@ void DSCkeybushome::update()  {
     case 0x63:
 
       if ((dsc.panelData[2] & 0x04) == 0x04) { // Alarm memory zones 1-32
-        processProgramZones(3);
+        processProgramZones(3,0);
       }
       break;
 
@@ -2255,6 +2261,11 @@ void DSCkeybushome::update()  {
 
       switch (dsc.panelData[2]) {
       case 0x01:
+        if (!(dsc.panelData[9] & 0x80))
+           processProgramZones(5,0);
+        else
+          processProgramZones(5,4); 
+           break;
       case 0x02:
       case 0x03:
       case 0x04:
@@ -2269,12 +2280,12 @@ void DSCkeybushome::update()  {
         break;
       case 0x20:
       case 0x21:
-        processProgramZones(5);
+        processProgramZones(5,4);
         break; // Programming zone lights 33-64 //bypass?
       case 0x18:
         //ESP_LOGI("info", "zone lights 33");
         if ((dsc.panelData[4] & 0x04) == 0x04)
-          processProgramZones(5);
+          processProgramZones(5,4);
         break; // Alarm memory zones 33-64
       case 0x2B:
         getEnabledZonesE6(4, 1, dsc.panelData[3]);
@@ -2396,14 +2407,10 @@ void DSCkeybushome::update()  {
 
   }
 
-  void DSCkeybushome::processProgramZones(byte startByte) {
+void DSCkeybushome::processProgramZones(byte startByte,byte zoneStart ) {
     byte byteCount = 0;
-    byte zoneStart = 0;
     byte zone;
-  //  std::string group1msg,group2msg;
-    
 
-    if (startByte == 5) zoneStart = 4;
     for (byte zoneGroup = zoneStart; zoneGroup < zoneStart + 4; zoneGroup++) {
       programZones[zoneGroup] = dsc.panelData[startByte + byteCount];
       byteCount++;
@@ -2414,29 +2421,7 @@ void DSCkeybushome::update()  {
             programZones[x] = 0;
         }  
     }    
-/*
-    byteCount = 0;
-    char s1[5];
-   std::string  group1msg="";
-   std::string  group2msg="";    
-    //if (startByte == 4 || startByte == 3) group1msg = "";
-   // if (startByte == 5) group2msg = "";
-    for (byte zoneGroup = zoneStart; zoneGroup < zoneStart + 4; zoneGroup++) {
-      for (byte zoneBit = 0; zoneBit < 8; zoneBit++) {
-        zone = (zoneBit + 1) + (zoneGroup * 8);
-        if (bitRead(dsc.panelData[startByte + byteCount], zoneBit)) {
-          sprintf(s1, "%02d ", zone);
-          if (startByte == 4 || startByte == 3) group1msg.append(s1);
-          if (startByte == 5) group2msg.append(s1);
 
-        }
-      }
-      byteCount++;
-    }
-   // group1msg.append(group2msg);
-    ESP_LOGI("info","procesprogramzones: %02X, %s,%S",startByte,group1msg.c_str(),group2msg.c_str());
-    //lightsCallback(group1msg, defaultPartition);
-    */
     if (options)
       dsc.statusChanged = true;
   }
