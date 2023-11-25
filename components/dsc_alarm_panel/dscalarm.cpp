@@ -805,7 +805,7 @@ void DSCkeybushome::on_json_message(const std::string &topic, JsonObject payload
     bool zonesEnabled = false;
     byte zone;
 
-    byte partition = getPanelBitNumber(partitionByte, 1);
+    byte partition = getPanelBitNumber(partitionByte, 1) + 1;
     for (byte panelByte = inputByte; panelByte <= inputByte + 3; panelByte++) {
       if (dsc.panelData[panelByte] != 0) {
         zonesEnabled = true;
@@ -813,10 +813,9 @@ void DSCkeybushome::on_json_message(const std::string &topic, JsonObject payload
           zone = (zoneBit + startZone) + ((panelByte - inputByte) * 8) - 1;
           if (zone >= maxZones) continue;
           if (bitRead(dsc.panelData[panelByte], zoneBit)) {
-            zoneStatus[zone].partition = partition+1;               
+            zoneStatus[zone].partition = partition;               
             zoneStatus[zone].enabled = true;
-         ESP_LOGD("test","zone=%d,status=%d,partition=%d",zone+1,zoneStatus[zone].enabled,partition+1);
-          } else if (zoneStatus[zone].partition==partition+1) {
+          } else if (zoneStatus[zone].partition==partition) {
                 zoneStatus[zone].enabled = false;
           }
 

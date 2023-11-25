@@ -47,7 +47,7 @@ vista_alarm_panel:
   # 13 4204 relay module
   # 14 4204 relay module
   # 15 4204 relay module
-  
+  # do not set an address here if you already have a real device at the same address.
   expanderaddr1: "0" # 1st zone expander emulator (4229) address to use . Set to 0 to disable. 
   expanderaddr2: "0" # 2nd expander emulator address to use . Set to 0 to disable. 
   
@@ -81,7 +81,8 @@ external_components:
   #- source:  my_components #uncomment to use local directory  
     components: [vista_alarm_panel,binary_sensor,text_sensor] 
     refresh: 10min
- 
+
+## web keypad component
 ## each included files will be downloaded automatically and compiled within the flash.  
 ## there will be no need for internet access when running. 
 #For www.js build details and source: https://github.com/Dilbert66/esphome-webserver-custom/tree/keypad

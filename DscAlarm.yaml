@@ -6,7 +6,7 @@ substitutions:
   
 dsc_alarm_panel:
   id: $panelId
-  #you can enter a list of user codes mapped to their names for display in armed/disarmed event messages
+  #you can enter a list of user codes mapped to their names for display in armed/disarmed event messages.  These will be used in logging.
   usercodes: "1:John,2:Sally,3:Bob" #
   
   #Only comes into effect if a password prompt occurs when arming eg. night mode
@@ -28,6 +28,8 @@ dsc_alarm_panel:
   # 13 - zones 41-48 (for systems with 64 zone support)
   # 14 - zones 49-56 (for systems with 64 zone support)
   # 16 - zones 57-64 (for systems with 64 zone support)  
+  # Do not set an expander address here if you already have a real device
+  # already installed at that address
   expanderaddr1: "0" # 1st zone expander emulator address to use . Set to 0 to disable. 
   expanderaddr2: "0" # 2nd expander emulator address to use . Set to 0 to disable. 
 
@@ -42,7 +44,7 @@ dsc_alarm_panel:
   #dscwritepin: "15" 
   
 
-  clean_build: "false" #default is false.  set to true if getting duplication errors in linking step.  
+  clean_build: "false" #default is false.  set to true if getting duplication errors in linking step.  Set back to 'true' after compilation.
   
 esp32: 
   board: nodemcu-32s
@@ -56,16 +58,17 @@ esp32:
     #version: recommended 
 
 #location of alarm panel code.  You can use the github release version  or 
-#copy the code to directory "my_components" in your main esphome directory   
+#copy the code to directory "my_components" in your main esphome folder   
 # see here for more info: https://esphome.io/components/external_components       
 external_components:
   - source: github://Dilbert66/esphome-components@keypad #uncomment to use github repository
   #- source:  my_components #uncomment to use local directory 
     components: [dsc_alarm_panel,binary_sensor,text_sensor,web_keypad] 
     refresh: 10min
- 
-## each included files will be downloaded automatically and compiled within the flash.  
-## there will be no need for internet access when running.
+
+#web keypad component. Remove or comment if not needed
+# each included files will be downloaded automatically and compiled within the flash.  
+# there will be no need for internet access when running.
 #For www.js build details and source: https://github.com/Dilbert66/esphome-webserver-custom/tree/keypad
 #Component source: https://github.com/Dilbert66/esphome-components/tree/keypad/components/web_keypad
 web_keypad:
@@ -74,7 +77,7 @@ web_keypad:
   log: false
   config_url: https://dilbert66.github.io/config_files/config_dsc.yml  
   js_url: https://dilbert66.github.io/js_files/www.js
-  ## If you prefer to use locally hosted compile time files comment two lines above and uncomment below
+  ## If you prefer to use locally hosted compile time files comment the two lines above and uncomment below
   #js_include: ./www.js    
   #config_local: ./config_dsc.yml   
 
@@ -123,7 +126,7 @@ api:
     
     
 #to use mqtt disable the api: section above. This enables you to use esphome with 
-#non homeassistant systems
+#non homeassistant systems. You can also disable both mqtt/api sections and run with the web_component as a standalone virtual keypad
 #modify the mqtt section to your needs
 #See: https://esphome.io/components/mqtt.html
 
@@ -303,7 +306,7 @@ binary_sensor:
     name: "partition 2 Alarm Status (al_2)"  
     publish_initial_state: true        
     
-# relay PGM channels. Will show the state of the activate relay channel on/off
+# relay PGM channels. Will show the relay channels on/off states
 # relay id code = r + channel number
   - platform: template
     id_code: r1  
