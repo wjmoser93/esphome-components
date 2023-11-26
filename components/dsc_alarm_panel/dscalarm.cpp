@@ -291,7 +291,7 @@ void DSCkeybushome::begin() {
 
   void DSCkeybushome::alarm_arm_away() {
 
-    set_alarm_state("A", "", defaultPartition);
+    set_alarm_state("W", "", defaultPartition);
 
   }
 
@@ -561,6 +561,7 @@ void DSCkeybushome::begin() {
         dsc.write(key, partition);
       }
       setStatus(partition - 1, true);
+
     } else if (dsc.status[partition - 1] == 0xB2) { //output control
       if (key == '<') {
         * currentSelection = * currentSelection >= 3 ? 2 : ( * currentSelection > 0 ? * currentSelection - 1 : 2);
@@ -789,7 +790,6 @@ void DSCkeybushome::on_json_message(const std::string &topic, JsonObject payload
           if (bitRead(dsc.panelData[panelByte], zoneBit)) {
             zoneStatus[zone].partition = partition;               
             zoneStatus[zone].enabled = true;
-         ESP_LOGD("test","zone=%d,status=%d,partition=%d",zone+1,zoneStatus[zone].enabled,partition);
           } else if (zoneStatus[zone].partition==partition) {
                 zoneStatus[zone].enabled = false;
 
@@ -1161,12 +1161,12 @@ void DSCkeybushome::update()  {
       #endif
 
       processStatus();
+
       for (byte partition = 0; partition < dscPartitions; partition++) {
         if (dsc.disabled[partition] || dsc.status[partition] != 0xA0) continue;
         getBypassZones(partition+1);
         setStatus(partition, true);
       }
-
     }
 
     if (!forceDisconnect && ( dsc.statusChanged || forceRefresh) && dsc.panelData[0]) { // Processes data only when a valid Keybus command has been read and statuses were changed
