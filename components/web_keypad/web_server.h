@@ -296,12 +296,15 @@ void handle_alarm_panel_request(AsyncWebServerRequest *request, const UrlMatch &
   void handleRequest(AsyncWebServerRequest *request) override;
   /// This web handle is not trivial.
   bool isRequestHandlerTrivial() override;
-
+ 
  protected:
   void schedule_(std::function<void()> &&f);
   friend ListEntitiesIterator;
   web_server_base::WebServerBase *base_;
-  AsyncEventSource events_{"/events"};
+  //AsyncEventSource events_{"/events"};
+ 
+  AsyncWebSocket events_{"/ws"};
+
   ListEntitiesIterator entities_iterator_;
   const char * _json_keypad_config;
 #if USE_WEBSERVER_VERSION == 1

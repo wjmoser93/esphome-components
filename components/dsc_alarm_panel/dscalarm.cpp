@@ -1146,7 +1146,7 @@ void DSCkeybushome::update()  {
 #endif
       }
 
-      if (debug > 1)
+      if (debug > 1 )
         printPacket("Paneldata: ", dsc.panelData[0], dsc.panelData, 16);
       #ifdef SERIALDEBUGCOMMANDS
       if (debug > 2) {
@@ -1183,7 +1183,7 @@ void DSCkeybushome::update()  {
                relayChannelChangeCallback(x, false);
         }
         if (dsc.disabled[partition]) continue;
-        setStatus(partition, forceRefresh || dsc.status[partition]==0xEE || dsc.status[partition]==0xA0);
+        setStatus(partition, forceRefresh || dsc.status[partition]==0xEE || dsc.status[partition]==0xA0 );
 
       }
 #if !defined(ARDUINO_MQTT)     
@@ -1574,6 +1574,9 @@ void DSCkeybushome::update()  {
 
   void DSCkeybushome::setStatus(byte partition, bool force , bool skip ) {
 
+    if (debug > 1)     
+    ESP_LOGI("info", "before check status %02X, last status %02X,partition=%d,skip=%d,force=%d", dsc.status[partition], partitionStatus[partition].lastStatus,  partition + 1, skip,force);
+
     if (dsc.status[partition] == partitionStatus[partition].lastStatus && beeps == 0 && !force) return;
     byte * currentSelection = & partitionStatus[partition].currentSelection;
  
@@ -1957,7 +1960,7 @@ void DSCkeybushome::update()  {
       lcdLine1 = F("*8: Installer");
       partitionStatus[partition].decimalInput = false;
       partitionStatus[partition].digits = 0;
-      lcdLine2 = F("menu, 2 digits  ");
+      lcdLine2 = F("Enter 2 digits  ");
       break;
     case 0xF8:
       lcdLine1 = F("Keypad    ");
@@ -2257,7 +2260,6 @@ void DSCkeybushome::update()  {
       getEnabledZonesB1(6, 1, 2);
       break;
     case 0xE6:
-
       switch (dsc.panelData[2]) {
       case 0x01:
         if (!(dsc.panelData[9] & 0x80))

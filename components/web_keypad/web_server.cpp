@@ -139,16 +139,53 @@ void WebServer::setup() {
   this->setup_controller(this->include_internal_);
   this->base_->init();
 
-  this->events_.onConnect([this](AsyncEventSourceClient *client) {
+ /* this->events_.onConnect([this](AsyncEventSourceClient *client) {
     // Configure reconnect timeout and send config
     client->send(this->get_config_json().c_str(), "ping", millis(), 30000);
     this->entities_iterator_.begin(this->include_internal_);
-  });
+  });*/
+
+this->events_.onEvent(
+[this] (AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventType type, void * arg, uint8_t *data, size_t len) {
+
+ if (type == WS_EVT_CONNECT) {
+    //client -> printf("{\"connected_id\": %u}", client -> id());
+    Serial.printf("ws[%s][%u] connected\n", server -> url(), client -> id());
+    client->printf(this->get_config_json().c_str());
+    entities_iterator_.begin(include_internal_);
+/*
+    if (vista.keybusConnected && ws.count()) {
+      publishLcd((char * )
+        "Vista bus", (char * )
+        "connected", client -> id());
+      forceZoneUpdate = true;
+    } else
+    if (!vista.keybusConnected && ws.count()) {
+      publishLcd((char * )
+        "Vista bus", (char * )
+        "disconnected");
+    }
+*/
+    client->ping();
+    //pingTime = millis();
+  } else if (type == WS_EVT_DISCONNECT) {
+  
+
+ }
+}
+);
 
 #ifdef USE_LOGGER
   if (logger::global_logger != nullptr && this->expose_log_) {
+
     logger::global_logger->add_on_log_callback(
-        [this](int level, const char *tag, const char *message) { this->events_.send(message, "log", millis()); });
+        [this](int level, const char *tag, const char *message) {
+
+
+  
+ this->events_.textAll("{\"id\":\"log\"}");
+ });
+
   }
 #endif
   this->base_->add_handler(&this->events_);
@@ -157,7 +194,7 @@ void WebServer::setup() {
   if (this->allow_ota_)
     this->base_->add_ota_handler();
 
-  this->set_interval(10000, [this]() { this->events_.send("", "ping", millis(), 30000); });
+ // this->set_interval(10000, [this]() { this->events_.textAll("", "ping", millis(), 30000); });
 }
 void WebServer::loop() {
 #ifdef USE_ESP32
@@ -427,7 +464,7 @@ void WebServer::handle_js_request(AsyncWebServerRequest *request) {
 
 #ifdef USE_SENSOR
 void WebServer::on_sensor_update(sensor::Sensor *obj, float state) {
-  this->events_.send(this->sensor_json(obj, state, DETAIL_STATE).c_str(), "state");
+  this->events_.textAll(this->sensor_json(obj, state, DETAIL_STATE).c_str());
 }
 void WebServer::handle_sensor_request(AsyncWebServerRequest *request, const UrlMatch &match) {
   for (sensor::Sensor *obj : App.get_sensors()) {
@@ -456,7 +493,7 @@ std::string WebServer::sensor_json(sensor::Sensor *obj, float value, JsonDetail 
 
 #ifdef USE_TEXT_SENSOR
 void WebServer::on_text_sensor_update(text_sensor::TextSensor *obj, const std::string &state) {
-  this->events_.send(this->text_sensor_json(obj, state, DETAIL_STATE).c_str(), "state");
+  this->events_.textAll(this->text_sensor_json(obj, state, DETAIL_STATE).c_str());
 }
 void WebServer::handle_text_sensor_request(AsyncWebServerRequest *request, const UrlMatch &match) {
   for (text_sensor::TextSensor *obj : App.get_text_sensors()) {
@@ -488,7 +525,7 @@ std::string WebServer::text_sensor_json(text_sensor::TextSensor *obj, const std:
 
 #ifdef USE_SWITCH
 void WebServer::on_switch_update(switch_::Switch *obj, bool state) {
-  this->events_.send(this->switch_json(obj, state, DETAIL_STATE).c_str(), "state");
+  this->events_.textAll(this->switch_json(obj, state, DETAIL_STATE).c_str());
 }
 std::string WebServer::switch_json(switch_::Switch *obj, bool value, JsonDetail start_config) {
   return json::build_json([obj, value, start_config](JsonObject root) {
@@ -549,7 +586,7 @@ void WebServer::handle_button_request(AsyncWebServerRequest *request, const UrlM
 
 #ifdef USE_BINARY_SENSOR
 void WebServer::on_binary_sensor_update(binary_sensor::BinarySensor *obj, bool state) {
-  this->events_.send(this->binary_sensor_json(obj, state, DETAIL_STATE).c_str(), "state");
+  this->events_.textAll(this->binary_sensor_json(obj, state, DETAIL_STATE).c_str());
 }
 #if defined(USE_CUSTOM_ID)
 std::string WebServer::binary_sensor_json(binary_sensor::BinarySensor *obj, bool value, JsonDetail start_config) {
@@ -580,7 +617,7 @@ void WebServer::handle_binary_sensor_request(AsyncWebServerRequest *request, con
 #endif
 
 #ifdef USE_FAN
-void WebServer::on_fan_update(fan::Fan *obj) { this->events_.send(this->fan_json(obj, DETAIL_STATE).c_str(), "state"); }
+void WebServer::on_fan_update(fan::Fan *obj) { this->events_.textAll(this->fan_json(obj, DETAIL_STATE).c_str()); }
 std::string WebServer::fan_json(fan::Fan *obj, JsonDetail start_config) {
   return json::build_json([obj, start_config](JsonObject root) {
     set_json_state_value(root, obj, "fan-" + obj->get_object_id(), obj->state ? "ON" : "OFF", obj->state, start_config);
@@ -649,7 +686,7 @@ void WebServer::handle_fan_request(AsyncWebServerRequest *request, const UrlMatc
 
 #ifdef USE_LIGHT
 void WebServer::on_light_update(light::LightState *obj) {
-  this->events_.send(this->light_json(obj, DETAIL_STATE).c_str(), "state");
+  this->events_.textAll(this->light_json(obj, DETAIL_STATE).c_str());
 }
 void WebServer::handle_light_request(AsyncWebServerRequest *request, const UrlMatch &match) {
   for (light::LightState *obj : App.get_lights()) {
@@ -755,7 +792,7 @@ std::string WebServer::light_json(light::LightState *obj, JsonDetail start_confi
 
 #ifdef USE_COVER
 void WebServer::on_cover_update(cover::Cover *obj) {
-  this->events_.send(this->cover_json(obj, DETAIL_STATE).c_str(), "state");
+  this->events_.textAll(this->cover_json(obj, DETAIL_STATE).c_str());
 }
 void WebServer::handle_cover_request(AsyncWebServerRequest *request, const UrlMatch &match) {
   for (cover::Cover *obj : App.get_covers()) {
@@ -820,7 +857,7 @@ std::string WebServer::cover_json(cover::Cover *obj, JsonDetail start_config) {
 
 #ifdef USE_NUMBER
 void WebServer::on_number_update(number::Number *obj, float state) {
-  this->events_.send(this->number_json(obj, state, DETAIL_STATE).c_str(), "state");
+  this->events_.textAll(this->number_json(obj, state, DETAIL_STATE).c_str());
 }
 void WebServer::handle_number_request(AsyncWebServerRequest *request, const UrlMatch &match) {
   for (auto *obj : App.get_numbers()) {
@@ -876,7 +913,7 @@ std::string WebServer::number_json(number::Number *obj, float value, JsonDetail 
 
 #ifdef USE_TEXT
 void WebServer::on_text_update(text::Text *obj, const std::string &state) {
-  this->events_.send(this->text_json(obj, state, DETAIL_STATE).c_str(), "state");
+  this->events_.textAll(this->text_json(obj, state, DETAIL_STATE).c_str());
 }
 void WebServer::handle_text_request(AsyncWebServerRequest *request, const UrlMatch &match) {
   for (auto *obj : App.get_texts()) {
@@ -1022,7 +1059,7 @@ for(int i=0;i<params;i++){
 
 #ifdef USE_SELECT
 void WebServer::on_select_update(select::Select *obj, const std::string &state, size_t index) {
-  this->events_.send(this->select_json(obj, state, DETAIL_STATE).c_str(), "state");
+  this->events_.textAll(this->select_json(obj, state, DETAIL_STATE).c_str());
 }
 void WebServer::handle_select_request(AsyncWebServerRequest *request, const UrlMatch &match) {
   for (auto *obj : App.get_selects()) {
@@ -1076,7 +1113,7 @@ std::string WebServer::select_json(select::Select *obj, const std::string &value
 
 #ifdef USE_CLIMATE
 void WebServer::on_climate_update(climate::Climate *obj) {
-  this->events_.send(this->climate_json(obj, DETAIL_STATE).c_str(), "state");
+  this->events_.textAll(this->climate_json(obj, DETAIL_STATE).c_str());
 }
 
 void WebServer::handle_climate_request(AsyncWebServerRequest *request, const UrlMatch &match) {
@@ -1217,7 +1254,7 @@ std::string WebServer::climate_json(climate::Climate *obj, JsonDetail start_conf
 
 #ifdef USE_LOCK
 void WebServer::on_lock_update(lock::Lock *obj) {
-  this->events_.send(this->lock_json(obj, obj->state, DETAIL_STATE).c_str(), "state");
+  this->events_.textAll(this->lock_json(obj, obj->state, DETAIL_STATE).c_str());
 }
 std::string WebServer::lock_json(lock::Lock *obj, lock::LockState value, JsonDetail start_config) {
   return json::build_json([obj, value, start_config](JsonObject root) {
@@ -1253,7 +1290,7 @@ void WebServer::handle_lock_request(AsyncWebServerRequest *request, const UrlMat
 
 #ifdef USE_ALARM_CONTROL_PANEL
 void WebServer::on_alarm_control_panel_update(alarm_control_panel::AlarmControlPanel *obj) {
-  this->events_.send(this->alarm_control_panel_json(obj, obj->get_state(), DETAIL_STATE).c_str(), "state");
+  this->events_.textAll(this->alarm_control_panel_json(obj, obj->get_state(), DETAIL_STATE).c_str());
 }
 std::string WebServer::alarm_control_panel_json(alarm_control_panel::AlarmControlPanel *obj,
                                                 alarm_control_panel::AlarmControlPanelState value,
