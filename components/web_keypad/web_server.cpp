@@ -122,10 +122,6 @@ void WebServer::set_keypad_config(const char * json_keypad_config) {
     _json_keypad_config=json_keypad_config;
 }
 
-void WebServer::set_keypad_config_url(const char * keypad_config_url) {
-      _keypad_config_url=keypad_config_url;
-  };  
-
 std::string WebServer::get_config_json() {
   return json::build_json([this](JsonObject root) {
     root["title"] = App.get_friendly_name().empty() ? App.get_name() : App.get_friendly_name();
@@ -472,12 +468,22 @@ void WebServer::handle_text_sensor_request(AsyncWebServerRequest *request, const
   }
   request->send(404);
 }
+#if defined(USE_CUSTOM_ID)
 std::string WebServer::text_sensor_json(text_sensor::TextSensor *obj, const std::string &value,
                                         JsonDetail start_config) {
   return json::build_json([obj, value, start_config](JsonObject root) {
     set_json_icon_state_value(root, obj, "text_sensor-" + obj->get_object_id() + "-" + obj->get_type_id(), value, value, start_config);
   });
 }
+#else
+std::string WebServer::text_sensor_json(text_sensor::TextSensor *obj, const std::string &value,
+                                        JsonDetail start_config) {
+  return json::build_json([obj, value, start_config](JsonObject root) {
+    set_json_icon_state_value(root, obj, "text_sensor-" + obj->get_object_id() + "-" + obj->get_object_id(), value, value, start_config);
+  });
+}    
+
+#endif
 #endif
 
 #ifdef USE_SWITCH
@@ -545,12 +551,22 @@ void WebServer::handle_button_request(AsyncWebServerRequest *request, const UrlM
 void WebServer::on_binary_sensor_update(binary_sensor::BinarySensor *obj, bool state) {
   this->events_.send(this->binary_sensor_json(obj, state, DETAIL_STATE).c_str(), "state");
 }
+#if defined(USE_CUSTOM_ID)
 std::string WebServer::binary_sensor_json(binary_sensor::BinarySensor *obj, bool value, JsonDetail start_config) {
   return json::build_json([obj, value, start_config](JsonObject root) {
     set_json_state_value(root, obj, "binary_sensor-" + obj->get_object_id() + "-" + obj->get_type_id(), value ? "ON" : "OFF", value, start_config);
   
   });
 }
+#else
+std::string WebServer::binary_sensor_json(binary_sensor::BinarySensor *obj, bool value, JsonDetail start_config) {
+  return json::build_json([obj, value, start_config](JsonObject root) {
+    set_json_state_value(root, obj, "binary_sensor-" + obj->get_object_id() + "-" + obj->get_object_id(), value ? "ON" : "OFF", value, start_config);
+  
+  });
+}
+#endif
+
 void WebServer::handle_binary_sensor_request(AsyncWebServerRequest *request, const UrlMatch &match) {
   for (binary_sensor::BinarySensor *obj : App.get_binary_sensors()) {
     if (obj->get_object_id() != match.id)
@@ -985,10 +1001,13 @@ for(int i=0;i<params;i++){
     if (request->hasParam("keys",true)) {
       std::string keys = request->getParam("keys",true)->value().c_str();
       ESP_LOGD("test","got keys %s",keys.c_str());
-      if (alarmPanel != NULL) {
-        alarmPanel->alarm_keypress_partition(keys,partition);
-        request->send(200);
-      } else 
+        if (this->key_service_func_.has_value()) {
+            (*this->key_service_func_)(keys,partition);          
+            request->send(200);
+      } else if (alarmPanel != NULL) {
+          alarmPanel->alarm_keypress_partition(keys,partition);
+          request->send(200);
+      } else
           request->send(404);
             
       return;      

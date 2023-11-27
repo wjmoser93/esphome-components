@@ -431,6 +431,13 @@ void vistaECPHome::setup()  {
             forceRefresh=true;
             return;
       }
+      if(keystring=="A") {set_alarm_state("A","",partition);return;}
+      if(keystring=="S") {set_alarm_state("S","",partition);return;}
+      if(keystring=="N") {set_alarm_state("N","",partition);return;}
+      if(keystring=="I") {set_alarm_state("I","",partition);return;}     
+      if(keystring=="B") {set_alarm_state("B","",partition);return;}   
+      if(keystring=="Y") {set_alarm_state("Y","",partition);return;}     
+      
       const char * keys = strcpy(new char[keystring.length() + 1], keystring.c_str());
       if (!partition) partition = defaultPartition;      
       if (debug > 0)
@@ -621,7 +628,15 @@ void vistaECPHome::setup()  {
           vista.write("2",addr);
         }
       }
-      // Arm night  
+      else if (state.compare("I") == 0 && !partitionStates[partition-1].previousLightState.armed) {
+        if (quickArm)
+          vista.write("#7",addr);
+        else if (code.length() == 4) {
+          vista.write(code.c_str(),addr);
+          vista.write("7",addr);
+        }
+
+      }      
       else if (state.compare("N") == 0 && !partitionStates[partition-1].previousLightState.armed) {
 
         if (quickArm)
@@ -641,8 +656,17 @@ void vistaECPHome::setup()  {
       else if (state.compare("P") == 0) {
 
         //todo
-      }
-      // Disarm
+      } else if (state.compare("B") == 0) {
+        if (code.length() == 4) {
+          vista.write(code.c_str(),addr);
+          vista.write("6#",addr);
+        }
+      } else if (state.compare("Y") == 0) {
+        if (code.length() == 4) {
+          vista.write(code.c_str(),addr);
+          vista.write("600",addr);
+        }
+      } 
       else if (state.compare("D") == 0 && partitionStates[partition-1].previousLightState.armed) {
         if (code.length() == 4) { // ensure we get 4 digit code
           vista.write(code.c_str(),addr);

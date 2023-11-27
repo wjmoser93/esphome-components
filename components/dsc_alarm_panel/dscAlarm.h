@@ -525,7 +525,7 @@ void update() override;
 
   void processRelayCmd() ;
 
-  void processProgramZones(byte startByte) ;
+  void processProgramZones(byte startByte,byte zoneStart) ;
 
   void processEventBufferAA(bool showEvent = false) ;
 

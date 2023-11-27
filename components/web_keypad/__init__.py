@@ -34,7 +34,7 @@ AUTO_LOAD = ["json", "web_server_base"]
 CONF_CONFIG ="config_local"
 CONF_KEYPAD_URL="config_url"
 CONF_PARTITIONS="partitions"
-isLocal = True
+CONF_SERVICE_LAMBDA="service_lambda"
 
 web_server_ns = cg.esphome_ns.namespace("web_server")
 WebServer = web_server_ns.class_("WebServer", cg.Component, cg.Controller)
@@ -72,14 +72,15 @@ CONFIG_SCHEMA = cv.All(
         {
             cv.GenerateID(): cv.declare_id(WebServer),
             cv.Optional(CONF_PORT, default=80): cv.port,
-            cv.Optional(CONF_VERSION, default=2): cv.one_of(1, 2, int=True),
+            cv.Optional(CONF_VERSION, default=2): cv.one_of(1,2, int=True),
             cv.Optional(CONF_CSS_URL): cv.string,
             cv.Optional(CONF_CSS_INCLUDE): cv.file_,
             cv.Optional(CONF_JS_URL): cv.string,
             cv.Optional(CONF_PARTITIONS): cv.int_,            
             cv.Optional(CONF_JS_INCLUDE): cv.file_,
             cv.Optional(CONF_CONFIG):cv.file_,
-            cv.Optional(CONF_KEYPAD_URL):cv.string,            
+            cv.Optional(CONF_KEYPAD_URL):cv.string,  
+            cv.Optional(CONF_SERVICE_LAMBDA): cv.lambda_,
             cv.Optional(CONF_ENABLE_PRIVATE_NETWORK_ACCESS, default=True): cv.boolean,
             cv.Optional(CONF_AUTH): cv.Schema(
                 {
@@ -115,7 +116,6 @@ CONFIG_SCHEMA = cv.All(
 
 
 def build_index_html(config) -> str:
-    global isLocal
     html = "<!DOCTYPE html><html><head><meta charset=UTF-8><link rel=icon href=data:>"
     css_include = config.get(CONF_CSS_INCLUDE)
     js_include = config.get(CONF_JS_INCLUDE)
@@ -125,11 +125,11 @@ def build_index_html(config) -> str:
     if config[CONF_CSS_URL]:
         html += f'<link rel=stylesheet href="{config[CONF_CSS_URL]}">'
     html += "</head><body>"
-    if js_include or (js_url and isLocal):
+    if js_include or js_url:
         html += "<script type=module src=/0.js></script>"
-    if config[CONF_JS_URL] and not isLocal:
-        html += f'<script src="{config[CONF_JS_URL]}"></script>'
-    html += "<esp-app></esp-app>"     
+    html += "<esp-app></esp-app>"
+    #if config[CONF_JS_URL]:
+     #   html += f'<script src="{config[CONF_JS_URL]}"></script>'
     html += "</body></html>"
     return html
 
@@ -153,15 +153,11 @@ def add_resource_as_progmem(
 
 @coroutine_with_priority(40.0)
 async def to_code(config):
-    global isLocal
     paren = await cg.get_variable(config[CONF_WEB_SERVER_BASE_ID])
 
     var = cg.new_Pvariable(config[CONF_ID], paren)
     await cg.register_component(var, config)
-    if CONF_LOCAL in config and not config[CONF_LOCAL]:
-        isLocal = False
-        cg.add_define("USE_KEYPAD_LOCAL")        
-        
+
     cg.add_define("USE_WEBSERVER")
     version = config[CONF_VERSION]
 
@@ -169,6 +165,12 @@ async def to_code(config):
     cg.add_define("USE_WEBSERVER")
     cg.add_define("USE_WEBSERVER_PORT", config[CONF_PORT])
     cg.add_define("USE_WEBSERVER_VERSION", version)
+    
+    if lambda_config := config.get(CONF_SERVICE_LAMBDA):
+        lambda_ = await cg.process_lambda(
+            lambda_config, [(cg.std_string, "keys"),(cg.uint8, "partition")], return_type=None
+        )
+        cg.add(var.set_service_lambda(lambda_))    
     if version == 2:
         # Don't compress the index HTML as the data sizes are almost the same.
         add_resource_as_progmem("INDEX_HTML", build_index_html(config), compress=False)
@@ -189,12 +191,10 @@ async def to_code(config):
         path = CORE.relative_config_path(config[CONF_CSS_INCLUDE])
         with open(file=path, encoding="utf-8") as css_file:
             add_resource_as_progmem("CSS_INCLUDE", css_file.read())
-            
-    if CONF_JS_URL in config and config[CONF_JS_URL] and isLocal:
+    if CONF_JS_URL in config and config[CONF_JS_URL]:
         cg.add_define("USE_WEBSERVER_JS_INCLUDE")
         response = requests.get(config[CONF_JS_URL])
-        add_resource_as_progmem("JS_INCLUDE", response.text)   
-        
+        add_resource_as_progmem("JS_INCLUDE", response.text)             
     if CONF_JS_INCLUDE in config:
         cg.add_define("USE_WEBSERVER_JS_INCLUDE")
         path = CORE.relative_config_path(config[CONF_JS_INCLUDE])
@@ -202,24 +202,19 @@ async def to_code(config):
             add_resource_as_progmem("JS_INCLUDE", js_file.read())
            
     cg.add(var.set_include_internal(config[CONF_INCLUDE_INTERNAL]))
-    #if CONF_LOCAL in config and config[CONF_LOCAL]:
-     #   cg.add_define("USE_WEBSERVER_LOCAL")
+    if CONF_LOCAL in config and config[CONF_LOCAL]:
+        cg.add_define("USE_WEBSERVER_LOCAL")
         
     if CONF_KEYPAD_URL in config and config[CONF_KEYPAD_URL]:
-        if isLocal: 
-            response = requests.get(config[CONF_KEYPAD_URL])
-            configuration = yaml.safe_load(response.text)
-            output = json.dumps(configuration)
-            cg.add(var.set_keypad_config(output)) 
-        else:
-            cg.add(var.set_keypad_config_url(config[CONF_KEYPAD_URL]));
+        response = requests.get(config[CONF_KEYPAD_URL])
+        configuration = yaml.safe_load(response.text)
+        output = json.dumps(configuration)
+        cg.add(var.set_keypad_config(output))        
        
     if CONF_CONFIG in config and config[CONF_CONFIG]:
-        if isLocal:
-            with open( CORE.relative_config_path(config[CONF_CONFIG]),'r') as file:
-                configuration = yaml.safe_load(file)
-            output = json.dumps(configuration)
-            cg.add(var.set_keypad_config(output))
-        else:
-             cg.add(var.set_keypad_config_url(config[CONF_KEYPAD_URL]));
+        with open( CORE.relative_config_path(config[CONF_CONFIG]),'r') as file:
+            configuration = yaml.safe_load(file)
+        output = json.dumps(configuration)
+        cg.add(var.set_keypad_config(output))
+         
 

@@ -102,10 +102,22 @@ class WebServer : public Controller, public Component, public AsyncWebHandler {
    *
    * @param expose_log.
    */
+  using key_service_t = std::function<void(std::string,int)>;
+  optional<key_service_t> key_service_func_{}; 
+  
   void set_partitions(uint8_t partitions) { this->partitions_=partitions;}
   void set_expose_log(bool expose_log) { this->expose_log_ = expose_log; }
   void set_keypad_config(const char * json_keypad_config);
-  void set_keypad_config_url(const char * keypad_config_url);  
+
+  void set_service_lambda(key_service_t &&lambda) { 
+   this->key_service_func_ = lambda;
+  }
+  /*
+    if (this->key_service_func_.has_value()) {
+    (*this->key_service_func_)(keys,partition);
+  } 
+
+  */
   // ========== INTERNAL METHODS ==========
   // (In most use cases you won't need these)
   /// Setup the internal web server and register handlers.
@@ -292,8 +304,6 @@ void handle_alarm_panel_request(AsyncWebServerRequest *request, const UrlMatch &
   AsyncEventSource events_{"/events"};
   ListEntitiesIterator entities_iterator_;
   const char * _json_keypad_config;
-  const char * _keypad_config_url;
-  
 #if USE_WEBSERVER_VERSION == 1
   const char *css_url_{nullptr};
   const char *js_url_{nullptr};
