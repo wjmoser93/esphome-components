@@ -60,8 +60,7 @@ def validate_local(config):
     if CONF_LOCAL in config and config[CONF_VERSION] == 1:
         raise cv.Invalid("'local' is not supported in version 1")
     return config
-
-
+    
 def validate_ota(config):
     if CORE.using_esp_idf and config[CONF_OTA]:
         raise cv.Invalid("Enabling 'ota' is not supported for IDF framework yet")
@@ -109,10 +108,11 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_LOCAL): cv.boolean,
         }
     ).extend(cv.COMPONENT_SCHEMA),
-    cv.only_on([PLATFORM_ESP32, PLATFORM_ESP8266, PLATFORM_BK72XX, PLATFORM_RTL87XX]),
+    cv.only_on([PLATFORM_ESP32]),
     default_url,
     validate_local,
     validate_ota,
+
 )
 
 
