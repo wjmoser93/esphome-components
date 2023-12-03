@@ -19,6 +19,10 @@
 
 #ifndef MONGOOSE_H
 #define MONGOOSE_H
+#define MG_ENABLE_LWIP 0
+#define MG_ENABLE_SOCKET 1
+#define MG_ARCH MG_ARCH_CUSTOM
+
 #define MG_VERSION "7.12"
 
 #ifdef __cplusplus
@@ -148,11 +152,11 @@ extern "C" {
 #if MG_ARCH == MG_ARCH_ESP8266
 
 #include <ctype.h>
-#include <dirent.h>
+//#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
-#include <netdb.h>
+//#include <netdb.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>

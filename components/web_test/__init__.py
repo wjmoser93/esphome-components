@@ -36,6 +36,7 @@ CONF_KEYPAD_URL="config_url"
 CONF_PARTITIONS="partitions"
 CONF_SERVICE_LAMBDA="service_lambda"
 
+
 web_server_ns = cg.esphome_ns.namespace("web_server")
 WebServer = web_server_ns.class_("WebServer", cg.Component, cg.Controller)
 
@@ -59,8 +60,7 @@ def validate_local(config):
     if CONF_LOCAL in config and config[CONF_VERSION] == 1:
         raise cv.Invalid("'local' is not supported in version 1")
     return config
-
-
+    
 def validate_ota(config):
     if CORE.using_esp_idf and config[CONF_OTA]:
         raise cv.Invalid("Enabling 'ota' is not supported for IDF framework yet")
@@ -108,24 +108,117 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_LOCAL): cv.boolean,
         }
     ).extend(cv.COMPONENT_SCHEMA),
-    cv.only_on([PLATFORM_ESP32, PLATFORM_ESP8266, PLATFORM_BK72XX, PLATFORM_RTL87XX]),
+    cv.only_on([PLATFORM_ESP32]),
     default_url,
     validate_local,
     validate_ota,
+
 )
+
+
+def build_index_html(config) -> str:
+    html = "<!DOCTYPE html><html><head><meta charset=UTF-8><link rel=icon href=data:>"
+    css_include = config.get(CONF_CSS_INCLUDE)
+    js_include = config.get(CONF_JS_INCLUDE)
+    js_url = config.get(CONF_JS_URL)    
+    if css_include:
+        html += "<link rel=stylesheet href=/0.css>"
+    if config[CONF_CSS_URL]:
+        html += f'<link rel=stylesheet href="{config[CONF_CSS_URL]}">'
+    html += "</head><body>"
+    html += "<esp-app></esp-app>"  
+    if js_include or js_url:
+    #if js_include:    
+        html += "<script src=/0.js></script>"
+    #if config[CONF_JS_URL]:
+     #   html += f'<script src="{config[CONF_JS_URL]}"></script>'
+    html += "</body></html>"
+    return html
+
+
+def add_resource_as_progmem(
+    resource_name: str, content: str, compress: bool = True
+) -> None:
+    """Add a resource to progmem."""
+    content_encoded = content.encode("utf-8")
+    if compress:
+        content_encoded = gzip.compress(content_encoded)
+    content_encoded_size = len(content_encoded)
+    bytes_as_int = ", ".join(str(x) for x in content_encoded)
+    uint8_t = f"const uint8_t ESPHOME_WEBSERVER_{resource_name}[{content_encoded_size}] PROGMEM = {{{bytes_as_int}}}"
+    size_t = (
+        f"const size_t ESPHOME_WEBSERVER_{resource_name}_SIZE = {content_encoded_size}"
+    )
+    cg.add_global(cg.RawExpression(uint8_t))
+    cg.add_global(cg.RawExpression(size_t))
 
 
 @coroutine_with_priority(40.0)
 async def to_code(config):
     paren = await cg.get_variable(config[CONF_WEB_SERVER_BASE_ID])
-    cg.add_library("WiFi", None)
-    cg.add_library("FS", None)
-    cg.add_library("Update", None)
-    #var = cg.new_Pvariable(config[CONF_ID], paren)
-    var = cg.new_Pvariable(config[CONF_ID])    
-    await cg.register_component(var,config)
-    cg.add_library("https://github.com/jeremypoulter/ArduinoMongoose.git", None) 
 
+    var = cg.new_Pvariable(config[CONF_ID])
+    await cg.register_component(var, config)
 
+    cg.add_define("USE_WEBSERVER")
+    version = config[CONF_VERSION]
+
+    cg.add(var.set_port(config[CONF_PORT]))
+    cg.add_define("USE_WEBSERVER")
+    cg.add_define("USE_WEBSERVER_PORT", config[CONF_PORT])
+    cg.add_define("USE_WEBSERVER_VERSION", version)
+    
+    if lambda_config := config.get(CONF_SERVICE_LAMBDA):
+        lambda_ = await cg.process_lambda(
+            lambda_config, [(cg.std_string, "keys"),(cg.uint8, "partition")], return_type=None
+        )
+        cg.add(var.set_service_lambda(lambda_))    
+    if version == 2:
+        # Don't compress the index HTML as the data sizes are almost the same.
+        add_resource_as_progmem("INDEX_HTML", build_index_html(config), compress=False)
+    else:
+        cg.add(var.set_css_url(config[CONF_CSS_URL]))
+        cg.add(var.set_js_url(config[CONF_JS_URL]))
+    cg.add(var.set_allow_ota(config[CONF_OTA]))
+    cg.add(var.set_expose_log(config[CONF_LOG]))
+    if CONF_PARTITIONS in config:
+        cg.add(var.set_partitions(config[CONF_PARTITIONS]))   
+    if config[CONF_ENABLE_PRIVATE_NETWORK_ACCESS]:
+        cg.add_define("USE_WEBSERVER_PRIVATE_NETWORK_ACCESS")
+    if CONF_AUTH in config:
+        cg.add(paren.set_auth_username(config[CONF_AUTH][CONF_USERNAME]))
+        cg.add(paren.set_auth_password(config[CONF_AUTH][CONF_PASSWORD]))
+    if CONF_CSS_INCLUDE in config:
+        cg.add_define("USE_WEBSERVER_CSS_INCLUDE")
+        path = CORE.relative_config_path(config[CONF_CSS_INCLUDE])
+        with open(file=path, encoding="utf-8") as css_file:
+            add_resource_as_progmem("CSS_INCLUDE", css_file.read())
+            
+    if CONF_JS_URL in config and config[CONF_JS_URL]:
+        cg.add_define("USE_WEBSERVER_JS_INCLUDE")
+        response = requests.get(config[CONF_JS_URL])
+        add_resource_as_progmem("JS_INCLUDE", response.text)   
+        
+    if CONF_JS_INCLUDE in config:
+        cg.add_define("USE_WEBSERVER_JS_INCLUDE")
+        path = CORE.relative_config_path(config[CONF_JS_INCLUDE])
+        with open(file=path, encoding="utf-8") as js_file:
+            add_resource_as_progmem("JS_INCLUDE", js_file.read())
+           
+    cg.add(var.set_include_internal(config[CONF_INCLUDE_INTERNAL]))
+    if CONF_LOCAL in config and config[CONF_LOCAL]:
+        cg.add_define("USE_WEBSERVER_LOCAL")
+        
+    if CONF_KEYPAD_URL in config and config[CONF_KEYPAD_URL]:
+        response = requests.get(config[CONF_KEYPAD_URL])
+        configuration = yaml.safe_load(response.text)
+        output = json.dumps(configuration)
+        cg.add(var.set_keypad_config(output))        
+       
+    if CONF_CONFIG in config and config[CONF_CONFIG]:
+        with open( CORE.relative_config_path(config[CONF_CONFIG]),'r') as file:
+            configuration = yaml.safe_load(file)
+        output = json.dumps(configuration)
+        cg.add(var.set_keypad_config(output))
          
 
