@@ -1,6 +1,5 @@
 #pragma once
 #if !defined(ARDUINO_MQTT)
-#include "esphome.h"
 #include "esphome/core/component.h"
 #include "esphome/core/application.h"
 #include "esphome/components/time/real_time_clock.h"

@@ -2,7 +2,6 @@
 
 #include "dscAlarm.h"
 
-
 dscKeybusInterface dsc(dscClockPinDefault, dscReadPinDefault, dscWritePinDefault);
 
 bool forceDisconnect;
@@ -16,6 +15,7 @@ void disconnectKeybus() {
 }
 
 #if !defined(ARDUINO_MQTT)
+#include "esphome.h"
 namespace esphome {
 namespace alarm_panel {
 #endif

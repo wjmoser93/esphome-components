@@ -1,7 +1,5 @@
 #pragma once
 #include "list_entities.h"
-
-#include "esphome.h"
 #include "mongoose.h"
 #include "esphome/core/component.h"
 #include "esphome/core/controller.h"
@@ -32,6 +30,7 @@ extern const size_t ESPHOME_WEBSERVER_JS_INCLUDE_SIZE;
 
 namespace esphome {
 namespace web_server {
+
 extern void * webServerPtr;
 /// Internal helper struct that is used to parse incoming URLs
 struct UrlMatch {
@@ -45,7 +44,8 @@ enum msgType {
   STATE = 0,
   LOG,
   CONFIG,
-  PING  
+  PING ,
+  OTA  
 };
 
 enum JsonDetail { DETAIL_ALL, DETAIL_STATE };
@@ -120,7 +120,7 @@ class WebServer : public Controller, public Component {
   void set_service_lambda(key_service_t &&lambda) { 
    this->key_service_func_ = lambda;
   }
-
+  bool handleUpload(size_t bodylen,  const String &filename, size_t index,uint8_t *data, size_t len, bool final);
   // ========== INTERNAL METHODS ==========
   // (In most use cases you won't need these)
   /// Setup the internal web server and register handlers.
@@ -301,12 +301,19 @@ void handle_alarm_panel_request(struct mg_connection *c, void *ev_data, const Ur
   ListEntitiesIterator entities_iterator_;
 void push(msgType mt, const char *data);
 bool callKeyService(const char *buf,int partition);
-
+void report_ota_error();
+#define MATCH_BUF_SIZE 60
+static char matchBuf[MATCH_BUF_SIZE];
+static uint8_t matchIndex;
 void handleRequest(struct mg_connection *c,void *ev_data) ;
 static void ev_handler(struct mg_connection *nc, int ev, void *p, void *d);
 
-   
+
+
  protected:
+
+  uint32_t last_ota_progress_{0};
+  uint32_t ota_read_length_{0}; 
   void schedule_(std::function<void()> &&f);
 #ifdef ASYNCWEB 
 static void webPollTask(void * args);

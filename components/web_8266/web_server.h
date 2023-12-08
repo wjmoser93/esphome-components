@@ -1,8 +1,8 @@
 #pragma once
+
 #include "list_entities.h"
 
-#include "esphome.h"
-#include "mongoose.h"
+#include "esphome/components/web_server_base/web_server_base.h"
 #include "esphome/core/component.h"
 #include "esphome/core/controller.h"
 
@@ -13,7 +13,6 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #endif
-
 
 #if USE_WEBSERVER_VERSION == 2
 extern const uint8_t ESPHOME_WEBSERVER_INDEX_HTML[] PROGMEM;
@@ -32,7 +31,7 @@ extern const size_t ESPHOME_WEBSERVER_JS_INCLUDE_SIZE;
 
 namespace esphome {
 namespace web_server {
-extern void * webServerPtr;
+
 /// Internal helper struct that is used to parse incoming URLs
 struct UrlMatch {
   std::string domain;  ///< The domain of the component, for example "sensor"
@@ -59,9 +58,9 @@ enum JsonDetail { DETAIL_ALL, DETAIL_STATE };
  * under the '/light/...', '/sensor/...', ... URLs. A full documentation for this API
  * can be found under https://esphome.io/web-api/index.html.
  */
-class WebServer : public Controller, public Component {
+class WebServer : public Controller, public Component, public AsyncWebHandler {
  public:
-  WebServer();
+  WebServer(web_server_base::WebServerBase *base);
 
 #if USE_WEBSERVER_VERSION == 1
   /** Set the URL to the CSS <link> that's sent to each client. Defaults to
@@ -116,11 +115,17 @@ class WebServer : public Controller, public Component {
   void set_partitions(uint8_t partitions) { this->partitions_=partitions;}
   void set_expose_log(bool expose_log) { this->expose_log_ = expose_log; }
   void set_keypad_config(const char * json_keypad_config);
-  void set_port(uint8_t port) { this->port_=port;};
+  void set_port(int port) {};
+
   void set_service_lambda(key_service_t &&lambda) { 
    this->key_service_func_ = lambda;
   }
+  /*
+    if (this->key_service_func_.has_value()) {
+    (*this->key_service_func_)(keys,partition);
+  } 
 
+  */
   // ========== INTERNAL METHODS ==========
   // (In most use cases you won't need these)
   /// Setup the internal web server and register handlers.
@@ -133,33 +138,30 @@ class WebServer : public Controller, public Component {
   float get_setup_priority() const override;
 
   /// Handle an index request under '/'.
-  void handle_index_request(struct mg_connection *c);
+  void handle_index_request(AsyncWebServerRequest *request);
 
   /// Return the webserver configuration as JSON.
   std::string get_config_json();
-  std::string escape_json(const char *s);
-  
-  long int toInt(std::string s, int base); 
 
 #ifdef USE_WEBSERVER_CSS_INCLUDE
   /// Handle included css request under '/0.css'.
-  void handle_css_request(struct mg_connection *c);
+  void handle_css_request(AsyncWebServerRequest *request);
 #endif
 
 #ifdef USE_WEBSERVER_JS_INCLUDE
   /// Handle included js request under '/0.js'.
-  void handle_js_request(struct mg_connection *c);
+  void handle_js_request(AsyncWebServerRequest *request);
 #endif
 
 #ifdef USE_WEBSERVER_PRIVATE_NETWORK_ACCESS
   // Handle Private Network Access CORS OPTIONS request
-  void handle_pna_cors_request(struct mg_connection *c);
+  void handle_pna_cors_request(AsyncWebServerRequest *request);
 #endif
 
 #ifdef USE_SENSOR
   void on_sensor_update(sensor::Sensor *obj, float state) override;
   /// Handle a sensor request under '/sensor/<id>'.
-  void handle_sensor_request(struct mg_connection *c, void *ev_data, const UrlMatch &match);
+  void handle_sensor_request(AsyncWebServerRequest *request, const UrlMatch &match);
 
   /// Dump the sensor state with its value as a JSON string.
   std::string sensor_json(sensor::Sensor *obj, float value, JsonDetail start_config);
@@ -169,7 +171,7 @@ class WebServer : public Controller, public Component {
   void on_switch_update(switch_::Switch *obj, bool state) override;
 
   /// Handle a switch request under '/switch/<id>/</turn_on/turn_off/toggle>'.
-  void handle_switch_request(struct mg_connection *c, void *ev_data, const UrlMatch &match);
+  void handle_switch_request(AsyncWebServerRequest *request, const UrlMatch &match);
 
   /// Dump the switch state with its value as a JSON string.
   std::string switch_json(switch_::Switch *obj, bool value, JsonDetail start_config);
@@ -177,7 +179,7 @@ class WebServer : public Controller, public Component {
 
 #ifdef USE_BUTTON
   /// Handle a button request under '/button/<id>/press'.
-  void handle_button_request(struct mg_connection *c, void *ev_data, const UrlMatch &match);
+  void handle_button_request(AsyncWebServerRequest *request, const UrlMatch &match);
 
   /// Dump the button details with its value as a JSON string.
   std::string button_json(button::Button *obj, JsonDetail start_config);
@@ -187,7 +189,7 @@ class WebServer : public Controller, public Component {
   void on_binary_sensor_update(binary_sensor::BinarySensor *obj, bool state) override;
 
   /// Handle a binary sensor request under '/binary_sensor/<id>'.
-  void handle_binary_sensor_request(struct mg_connection *c, void *ev_data, const UrlMatch &match);
+  void handle_binary_sensor_request(AsyncWebServerRequest *request, const UrlMatch &match);
 
   /// Dump the binary sensor state with its value as a JSON string.
   std::string binary_sensor_json(binary_sensor::BinarySensor *obj, bool value, JsonDetail start_config);
@@ -197,7 +199,7 @@ class WebServer : public Controller, public Component {
   void on_fan_update(fan::Fan *obj) override;
 
   /// Handle a fan request under '/fan/<id>/</turn_on/turn_off/toggle>'.
-  void handle_fan_request(struct mg_connection *c, void *ev_data, const UrlMatch &match);
+  void handle_fan_request(AsyncWebServerRequest *request, const UrlMatch &match);
 
   /// Dump the fan state as a JSON string.
   std::string fan_json(fan::Fan *obj, JsonDetail start_config);
@@ -207,7 +209,7 @@ class WebServer : public Controller, public Component {
   void on_light_update(light::LightState *obj) override;
 
   /// Handle a light request under '/light/<id>/</turn_on/turn_off/toggle>'.
-  void handle_light_request(struct mg_connection *c, void *ev_data, const UrlMatch &match);
+  void handle_light_request(AsyncWebServerRequest *request, const UrlMatch &match);
 
   /// Dump the light state as a JSON string.
   std::string light_json(light::LightState *obj, JsonDetail start_config);
@@ -217,7 +219,7 @@ class WebServer : public Controller, public Component {
   void on_text_sensor_update(text_sensor::TextSensor *obj, const std::string &state) override;
 
   /// Handle a text sensor request under '/text_sensor/<id>'.
-  void handle_text_sensor_request(struct mg_connection *c, void *ev_data, const UrlMatch &match);
+  void handle_text_sensor_request(AsyncWebServerRequest *request, const UrlMatch &match);
 
   /// Dump the text sensor state with its value as a JSON string.
   std::string text_sensor_json(text_sensor::TextSensor *obj, const std::string &value, JsonDetail start_config);
@@ -227,7 +229,7 @@ class WebServer : public Controller, public Component {
   void on_cover_update(cover::Cover *obj) override;
 
   /// Handle a cover request under '/cover/<id>/<open/close/stop/set>'.
-  void handle_cover_request(struct mg_connection *c, void *ev_data, const UrlMatch &match);
+  void handle_cover_request(AsyncWebServerRequest *request, const UrlMatch &match);
 
   /// Dump the cover state as a JSON string.
   std::string cover_json(cover::Cover *obj, JsonDetail start_config);
@@ -236,7 +238,7 @@ class WebServer : public Controller, public Component {
 #ifdef USE_NUMBER
   void on_number_update(number::Number *obj, float state) override;
   /// Handle a number request under '/number/<id>'.
-  void handle_number_request(struct mg_connection *c, void *ev_data, const UrlMatch &match);
+  void handle_number_request(AsyncWebServerRequest *request, const UrlMatch &match);
 
   /// Dump the number state with its value as a JSON string.
   std::string number_json(number::Number *obj, float value, JsonDetail start_config);
@@ -245,13 +247,13 @@ class WebServer : public Controller, public Component {
 
 #if defined(USE_DSC_PANEL) || defined (USE_VISTA_PANEL)
 
-void handle_alarm_panel_request(struct mg_connection *c, void *ev_data, const UrlMatch &match);
+void handle_alarm_panel_request(AsyncWebServerRequest *request, const UrlMatch &match);
 #endif
 
 #ifdef USE_TEXT
   void on_text_update(text::Text *obj, const std::string &state) override;
   /// Handle a text input request under '/text/<id>'.
-  void handle_text_request(struct mg_connection *c, void *ev_data, const UrlMatch &match);
+  void handle_text_request(AsyncWebServerRequest *request, const UrlMatch &match);
 
   /// Dump the text state with its value as a JSON string.
   std::string text_json(text::Text *obj, const std::string &value, JsonDetail start_config);
@@ -260,7 +262,7 @@ void handle_alarm_panel_request(struct mg_connection *c, void *ev_data, const Ur
 #ifdef USE_SELECT
   void on_select_update(select::Select *obj, const std::string &state, size_t index) override;
   /// Handle a select request under '/select/<id>'.
-  void handle_select_request(struct mg_connection *c, void *ev_data, const UrlMatch &match);
+  void handle_select_request(AsyncWebServerRequest *request, const UrlMatch &match);
 
   /// Dump the select state with its value as a JSON string.
   std::string select_json(select::Select *obj, const std::string &value, JsonDetail start_config);
@@ -269,7 +271,7 @@ void handle_alarm_panel_request(struct mg_connection *c, void *ev_data, const Ur
 #ifdef USE_CLIMATE
   void on_climate_update(climate::Climate *obj) override;
   /// Handle a climate request under '/climate/<id>'.
-  void handle_climate_request(struct mg_connection *c, void *ev_data, const UrlMatch &match);
+  void handle_climate_request(AsyncWebServerRequest *request, const UrlMatch &match);
 
   /// Dump the climate details
   std::string climate_json(climate::Climate *obj, JsonDetail start_config);
@@ -279,7 +281,7 @@ void handle_alarm_panel_request(struct mg_connection *c, void *ev_data, const Ur
   void on_lock_update(lock::Lock *obj) override;
 
   /// Handle a lock request under '/lock/<id>/</lock/unlock/open>'.
-  void handle_lock_request(struct mg_connection *c, void *ev_data, const UrlMatch &match);
+  void handle_lock_request(AsyncWebServerRequest *request, const UrlMatch &match);
 
   /// Dump the lock state with its value as a JSON string.
   std::string lock_json(lock::Lock *obj, lock::LockState value, JsonDetail start_config);
@@ -289,31 +291,29 @@ void handle_alarm_panel_request(struct mg_connection *c, void *ev_data, const Ur
   void on_alarm_control_panel_update(alarm_control_panel::AlarmControlPanel *obj) override;
 
   /// Handle a alarm_control_panel request under '/alarm_control_panel/<id>'.
-  void handle_alarm_control_panel_request(struct mg_connection *c, void *ev_data, const UrlMatch &match);
+  void handle_alarm_control_panel_request(AsyncWebServerRequest *request, const UrlMatch &match);
 
   /// Dump the alarm_control_panel state with its value as a JSON string.
   std::string alarm_control_panel_json(alarm_control_panel::AlarmControlPanel *obj,
                                        alarm_control_panel::AlarmControlPanelState value, JsonDetail start_config);
 #endif
-  struct mg_mgr mgr;
-  struct mg_connection *c;
-  friend ListEntitiesIterator;  
-  ListEntitiesIterator entities_iterator_;
-void push(msgType mt, const char *data);
-bool callKeyService(const char *buf,int partition);
 
-void handleRequest(struct mg_connection *c,void *ev_data) ;
-static void ev_handler(struct mg_connection *nc, int ev, void *p, void *d);
+  /// Override the web handler's canHandle method.
+  bool canHandle(AsyncWebServerRequest *request) override;
+  /// Override the web handler's handleRequest method.
+  void handleRequest(AsyncWebServerRequest *request) override;
+  /// This web handle is not trivial.
+  bool isRequestHandlerTrivial() override;
 
-   
  protected:
   void schedule_(std::function<void()> &&f);
-#ifdef ASYNCWEB 
-static void webPollTask(void * args);
-#endif
-  bool firstrun_{true};
-
-
+  friend ListEntitiesIterator;
+  web_server_base::WebServerBase *base_;
+  //AsyncEventSource events_{"/events"};
+  AsyncWebSocket events_{"/ws"};
+  void push(const char *data, msgType mt);  
+  std::string escape_json(const char * input); 
+  ListEntitiesIterator entities_iterator_;
   const char * _json_keypad_config;
 #if USE_WEBSERVER_VERSION == 1
   const char *css_url_{nullptr};
@@ -329,8 +329,6 @@ static void webPollTask(void * args);
   bool allow_ota_{true};
   bool expose_log_{true};
   uint8_t partitions_{1};
-  uint8_t port_{80};
-  
 #ifdef USE_ESP32
   std::deque<std::function<void()>> to_schedule_;
   SemaphoreHandle_t to_schedule_lock_;

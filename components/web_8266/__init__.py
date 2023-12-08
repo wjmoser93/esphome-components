@@ -56,11 +56,6 @@ def default_url(config):
     return config
 
 
-def validate_local(config):
-    if CONF_LOCAL in config and config[CONF_VERSION] == 1:
-        raise cv.Invalid("'local' is not supported in version 1")
-    return config
-    
 def validate_ota(config):
     if CORE.using_esp_idf and config[CONF_OTA]:
         raise cv.Invalid("Enabling 'ota' is not supported for IDF framework yet")
@@ -105,12 +100,11 @@ CONFIG_SCHEMA = cv.All(
                 rtl87xx=True,
             ): cv.boolean,
             cv.Optional(CONF_LOG, default=True): cv.boolean,
-            cv.Optional(CONF_LOCAL): cv.boolean,
+            cv.Optional(CONF_LOCAL, default=True): cv.boolean,
         }
     ).extend(cv.COMPONENT_SCHEMA),
     cv.only_on([PLATFORM_ESP32]),
     default_url,
-    validate_local,
     validate_ota,
 
 )
@@ -120,18 +114,18 @@ def build_index_html(config) -> str:
     html = "<!DOCTYPE html><html><head><meta charset=UTF-8><link rel=icon href=data:>"
     css_include = config.get(CONF_CSS_INCLUDE)
     js_include = config.get(CONF_JS_INCLUDE)
-    js_url = config.get(CONF_JS_URL)    
+    js_url = config.get(CONF_JS_URL)  
+    js_local=config.get(CONF_LOCAL);    
     if css_include:
         html += "<link rel=stylesheet href=/0.css>"
     if config[CONF_CSS_URL]:
         html += f'<link rel=stylesheet href="{config[CONF_CSS_URL]}">'
     html += "</head><body>"
     html += "<esp-app></esp-app>"  
-    if js_include or js_url:
-    #if js_include:    
+    if js_include or (js_url and js_local):
         html += "<script src=/0.js></script>"
-    #if config[CONF_JS_URL]:
-     #   html += f'<script src="{config[CONF_JS_URL]}"></script>'
+    if js_url and not js_local:
+        html += f'<script src="{config[CONF_JS_URL]}"></script>'
     html += "</body></html>"
     return html
 
@@ -157,7 +151,7 @@ def add_resource_as_progmem(
 async def to_code(config):
     paren = await cg.get_variable(config[CONF_WEB_SERVER_BASE_ID])
 
-    var = cg.new_Pvariable(config[CONF_ID])
+    var = cg.new_Pvariable(config[CONF_ID], paren)
     await cg.register_component(var, config)
 
     cg.add_define("USE_WEBSERVER")
@@ -194,7 +188,7 @@ async def to_code(config):
         with open(file=path, encoding="utf-8") as css_file:
             add_resource_as_progmem("CSS_INCLUDE", css_file.read())
             
-    if CONF_JS_URL in config and config[CONF_JS_URL]:
+    if CONF_JS_URL in config and config[CONF_JS_URL] and config[CONF_LOCAL]:
         cg.add_define("USE_WEBSERVER_JS_INCLUDE")
         response = requests.get(config[CONF_JS_URL])
         add_resource_as_progmem("JS_INCLUDE", response.text)   
@@ -206,8 +200,6 @@ async def to_code(config):
             add_resource_as_progmem("JS_INCLUDE", js_file.read())
            
     cg.add(var.set_include_internal(config[CONF_INCLUDE_INTERNAL]))
-    if CONF_LOCAL in config and config[CONF_LOCAL]:
-        cg.add_define("USE_WEBSERVER_LOCAL")
         
     if CONF_KEYPAD_URL in config and config[CONF_KEYPAD_URL]:
         response = requests.get(config[CONF_KEYPAD_URL])

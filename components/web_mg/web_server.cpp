@@ -7,16 +7,11 @@
 #include "esphome/core/log.h"
 #include "esphome/core/util.h"
 
-
 #if defined(USE_DSC_PANEL)
 #include "esphome/components/dsc_alarm_panel/dscAlarm.h"
 #endif
 #if defined(USE_VISTA_PANEL)
 #include "esphome/components/vista_alarm_panel/vistaalarm.h"
-#endif
-
-#ifdef USE_ARDUINO
-#include "StreamString.h"
 #endif
 
 #include <cstdlib>
@@ -33,13 +28,14 @@
 #include "esphome/components/climate/climate.h"
 #endif
 
-#ifdef USE_WEBSERVER_LOCAL
-#include "server_index.h"
+#ifdef USE_ARDUINO
+#include <StreamString.h>
+#include <Update.h>
 #endif
-
-
 namespace esphome {
 namespace web_server {
+
+
 
 static const char *const TAG = "web_server";
 void * webServerPtr;
@@ -77,7 +73,6 @@ void write_row(AsyncResponseStream *stream, EntityBase *obj, const std::string &
 #endif
 
 UrlMatch match_url(const struct mg_str *urlstr, bool only_domain = false) {
-    
    char buf[urlstr->len + 1];
    strncpy(buf,urlstr->ptr,urlstr->len);
    buf[urlstr->len]=0;
@@ -282,13 +277,7 @@ void WebServer::dump_config() {
 }
 float WebServer::get_setup_priority() const { return setup_priority::WIFI - 1.0f; }
 
-#ifdef USE_WEBSERVER_LOCAL
-const char *buf =(const char*)  INDEX_GZ;
-void WebServer::handle_index_request(struct mg_connection *c) {
-      mg_http_reply(c, 200, "Content-Type: text/html\r\nAccess-Control-Allow-Origin: *\r\nContent-Encoding: gzip\r\n", buf);   
-}    
-
-#elif USE_WEBSERVER_VERSION == 1
+#if USE_WEBSERVER_VERSION == 1
 /*
 void WebServer::handle_index_request(struct mg_connection *c) {
   AsyncResponseStream *stream = request->beginResponseStream("text/html");
@@ -474,7 +463,7 @@ void WebServer::handle_index_request(struct mg_connection *c) {
 #elif USE_WEBSERVER_VERSION == 2
 void WebServer::handle_index_request(struct mg_connection *c) {
   
-          char * buf= (char *) ESPHOME_WEBSERVER_INDEX_HTML;  
+          const char * buf= (const char *) ESPHOME_WEBSERVER_INDEX_HTML;  
           mg_printf(c, "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: %d\r\n\r\n", ESPHOME_WEBSERVER_INDEX_HTML_SIZE );
           mg_send(c,buf,ESPHOME_WEBSERVER_INDEX_HTML_SIZE);
           c->is_resp = 0;  
@@ -498,7 +487,7 @@ void WebServer::handle_pna_cors_request(struct mg_connection *c) {
 #ifdef USE_WEBSERVER_CSS_INCLUDE
 void WebServer::handle_css_request(struct mg_connection *c) {
    
-           char * buf= (char *) ESPHOME_WEBSERVER_CSS_INCLUDE;
+          const char * buf= (const char *) ESPHOME_WEBSERVER_CSS_INCLUDE;
           mg_printf(c, "HTTP/1.1 200 OK\r\nContent-Type: text/javascript\r\nContent-Encoding: gzip\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: %d\r\n\r\n", ESPHOME_WEBSERVER_CSS_INCLUDE_SIZE );
           mg_send(c,buf,ESPHOME_WEBSERVER_CSS_INCLUDE_SIZE);
           c->is_resp = 0;    
@@ -510,7 +499,7 @@ void WebServer::handle_css_request(struct mg_connection *c) {
 void WebServer::handle_js_request(struct mg_connection *c) {
 
          
-          char * buf= (char *) ESPHOME_WEBSERVER_JS_INCLUDE;
+          const char * buf= (const char *) ESPHOME_WEBSERVER_JS_INCLUDE;
           mg_printf(c, "HTTP/1.1 200 OK\r\nContent-Type: text/javascript; charset=utf-8\r\nContent-Encoding: gzip\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: %d\r\n\r\n", ESPHOME_WEBSERVER_JS_INCLUDE_SIZE );
           mg_send(c,buf,ESPHOME_WEBSERVER_JS_INCLUDE_SIZE);
           c->is_resp = 0;      
@@ -544,7 +533,7 @@ void WebServer::handle_sensor_request(struct mg_connection *c, void *ev_data, co
     if (obj->get_object_id() != match.id)
       continue;
     std::string data = this->sensor_json(obj, obj->state, DETAIL_STATE);
-    mg_http_reply(c, 200, "Content-Type: application/jsonAccess-Control-Allow-Origin: *\r\n\r\n", "%s", data.c_str());          
+    mg_http_reply(c, 200, "Content-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n", "%s", data.c_str());          
     //request->send(200, "application/json", data.c_str());
     return;
   }
@@ -701,7 +690,7 @@ void WebServer::handle_binary_sensor_request(struct mg_connection *c, void *ev_d
 
 #ifdef USE_FAN
 void WebServer::on_fan_update(fan::Fan *obj) {
-    //this->events_.send(this->fan_json(obj, DETAIL_STATE).c_str(), "state"); 
+    //this->p.send(this->fan_json(obj, DETAIL_STATE).c_str(), "state"); 
   this->push(STATE,this->fan_json(obj, DETAIL_STATE).c_str());     
     }
 std::string WebServer::fan_json(fan::Fan *obj, JsonDetail start_config) {
@@ -1445,9 +1434,11 @@ void WebServer::push(msgType mt, const char *data) {
          mg_ws_printf(c, WEBSOCKET_OP_TEXT, "{\"%s\":\"%s\",\"%s\":\"%s\"}", "type","log","data", msg.c_str());
     else if (mt==CONFIG )
          mg_ws_printf(c, WEBSOCKET_OP_TEXT, "{\"%s\":\"%s\",\"%s\":%s}", "type","config","data", msg.c_str());
+    else if (mt==OTA )
+         mg_ws_printf(c, WEBSOCKET_OP_TEXT, "{\"%s\":\"%s\",\"%s\":\"%s\"}", "type","ota","data", msg.c_str());     
   }
 }
-
+/*
 void WebServer::ev_handler(struct mg_connection *c, int ev, void *ev_data, void *fn_data) {
   WebServer * srv=static_cast<WebServer*>(webServerPtr);
   if (ev == MG_EV_OPEN) {
@@ -1475,6 +1466,183 @@ void WebServer::ev_handler(struct mg_connection *c, int ev, void *ev_data, void 
   }
   (void) fn_data;
 }
+*/
+   
+
+size_t getMultipart(struct mg_str body, size_t ofs,
+                              struct mg_http_part *part) {
+  struct mg_str cd = mg_str_n("Content-Disposition", 19);
+  const char *s = body.ptr;
+  size_t b = ofs, h1, h2, b1, b2, max = body.len;
+
+  // Init part params
+  if (part != NULL) part->name = part->filename = part->body = mg_str_n(0, 0);
+
+  while ((b + 2) < max && s[b] != '\r' && s[b + 1] != '\n') b++;
+  if (b <= ofs || ( b + 2) >= max || (s[0] != '-' && s[1] !='-')) return 0;
+ //  MG_INFO(("B: %lu %lu [%.*s]", ofs, b - ofs, (int) (b - ofs), s));
+
+  // Skip headers
+  h1 = h2 = b + 2;
+  for (;;) {
+    while (h2 + 2 < max && s[h2] != '\r' && s[h2 + 1] != '\n') h2++;
+    if (h2 == h1) break;
+    if (h2 + 2 >= max) return 0;
+   //  MG_INFO(("Header: [%.*s]", (int) (h2 - h1), &s[h1]));
+    if (part != NULL && h1 + cd.len + 2 < h2 && s[h1 + cd.len] == ':' &&
+        mg_ncasecmp(&s[h1], cd.ptr, cd.len) == 0) {
+      struct mg_str v = mg_str_n(&s[h1 + cd.len + 2], h2 - (h1 + cd.len + 2));
+      part->name = mg_http_get_header_var(v, mg_str_n("name", 4));
+      part->filename = mg_http_get_header_var(v, mg_str_n("filename", 8));
+    }
+    h1 = h2 = h2 + 2;
+  }
+  b1 = b2 = h2 + 2;
+  //MG_INFO(("B2: %lu [%.*s]",b1,  10, &s[b2]));  
+ 
+ return b2;
+
+}        
+
+char WebServer::matchBuf[MATCH_BUF_SIZE];
+uint8_t WebServer::matchIndex=0;
+
+void WebServer::ev_handler(struct mg_connection *c, int ev, void *ev_data, void *fn_data) {
+    WebServer * srv=static_cast<WebServer*>(webServerPtr);
+    bool final=false;
+    if (ev == MG_EV_WS_MSG) {
+        // Got websocket frame. Received data is wm->data. Echo it back!
+            struct mg_ws_message *wm = (struct mg_ws_message *) ev_data;
+            mg_ws_send(c, wm->data.ptr, wm->data.len, WEBSOCKET_OP_TEXT);
+    } else if (ev == MG_EV_READ ) {
+    // Parse the incoming data ourselves. If we can parse the request,
+    // store two size_t variables in the c->data: expected len and recv len.
+    size_t *data = (size_t *) c->data;
+    if (data[0]  ) {  // Already parsed, simply print received data
+     if (data[2] >= c->recv.len) {
+         data[0]=0;
+         c->recv.len = 0;          
+          srv->push(OTA,"OTA update failed... Please try again.");
+          mg_http_reply(c, 200, "Content-Type: text/html\r\nAccess-Control-Allow-Origin: *\r\n\r\n", "FAIL\r");         
+         return;
+     }
+     size_t ml=strlen(matchBuf);
+     char *b = (char *) c->recv.buf + data[2];
+     size_t bl = c->recv.len - data[2];
+ 
+
+     size_t x=0;
+     for (x;x<bl;x++) {
+         bool firstLoop=1;
+         for (size_t y=matchIndex;y<ml;y++) {
+            
+           if ((y+x)>= bl) 
+               break;
+
+           if (b[y+x] ==  matchBuf[y]) {
+              matchIndex++;
+           } else {
+               if (x==0 && matchIndex>0 && firstLoop) {
+                   srv->handleUpload(data[0],"upload.bin",data[1],(uint8_t*)matchBuf,matchIndex,final);
+                   data[1]+=matchIndex;
+                   MG_INFO(("***** save partial matched data bindex=%lu, index=%lu -  [%.*s]",matchIndex,data[1],matchIndex,matchBuf));
+                }
+               matchIndex=0;               
+               break;
+           }
+           firstLoop=false;
+         }
+         if (matchIndex) break;
+     }
+
+      if (matchIndex==ml && ml > 0) {
+             matchIndex=0;
+             final=true;
+        MG_INFO(("**********Final  bytes %lu, final=%d, data0=%lu, total=%lu, data1=%lu",x,final,data[0],x+data[1],data[1]));              
+        } 
+      
+      data[2]=0;  
+      c->recv.len = 0;  // And cleanup the receive buffer. Streaming!
+      bool res=true;
+
+       res=srv->handleUpload(data[0],"upload.bin",data[1],(uint8_t*)b,x,final); 
+  
+      if (!res) {
+        data[0]=0;
+        mg_http_reply(c, 200, "Content-Type: text/html\r\nAccess-Control-Allow-Origin: *\r\n\r\n", "FAIL\r"); 
+        return;
+      }
+      data[1] += x;      
+
+      if (final || data[1] >= data[0]) {
+        data[0]=0;
+        data[1]=0;
+        mg_http_reply(c, 200, "Content-Type: text/html\r\nAccess-Control-Allow-Origin: *\r\n\r\n", "OK\r"); 
+        return;
+      }
+     
+    } else {
+      struct mg_http_message hm;
+      int n = mg_http_parse((char *) c->recv.buf, c->recv.len, &hm);
+      if (n < 0) mg_error(c, "Bad response");
+      if (n > 0) {
+        if (mg_http_match_uri(&hm, "/update")) {
+          struct mg_str *ct = mg_http_get_header(&hm, "Content-Type");
+          struct mg_str boundary = mg_str("");           
+          if (ct != NULL) {
+            boundary = mg_http_get_header_var(*ct, mg_str("boundary"));  
+            MG_INFO(("before boundary check"));
+            if (boundary.ptr != NULL && boundary.len > 0) {
+             matchBuf[0]=13;
+             matchBuf[1]=10;
+             matchBuf[2]='-';
+             matchBuf[3]='-';             
+             memcpy(matchBuf+4,(char*) boundary.ptr, boundary.len);
+             //matchBuf[boundary.len+4]='-';
+            // matchBuf[boundary.len+5]='-';
+             matchBuf[boundary.len+4]=0;
+             MG_INFO(("datasize=%lu,len=%lu,boundary=[%.*s],sizeofdata=%lu,st=%lu",MG_DATA_SIZE,strlen(matchBuf),strlen(matchBuf),matchBuf,sizeof(c->data),sizeof(c->data[0])));
+             matchIndex=0;
+            } else
+                return;
+         } else 
+            return;   
+          struct mg_http_part part;
+          size_t ofs = 0; 
+          ofs=getMultipart(hm.body, ofs, &part);
+          if (ofs > 0  && part.filename.len) { 
+         MG_INFO(("Chunk name: [%.*s] filename: [%.*s] length: %lu bytes,ofs=%lu",
+                 (int) part.name.len, part.name.ptr, (int) part.filename.len,
+                 part.filename.ptr, (unsigned long) hm.body.len,ofs));          
+
+          data[0] = hm.body.len  - ofs -  (strlen(matchBuf)+4);//total len + 2 boundary headers including terminating --\r\n
+          data[1] = 0;//byte counter
+          data[2] = n + ofs; //initial offset
+          MG_INFO(("Got chunk len %lu,data0=%lu,data1=%lu,data2=%lu", 0,data[0],data[1],data[2]));          
+          }
+  
+        } 
+      }
+    }
+
+  }  else if (ev == MG_EV_HTTP_MSG) { 
+        struct mg_http_message *hm = (struct mg_http_message *) ev_data;
+        if (mg_http_match_uri(hm, "/ws")) {
+      // Upgrade to websocket. From now on, a connection is a full-duplex
+      // Websocket connection, which will receive MG_EV_WS_MSG events.
+            mg_ws_upgrade(c, hm, NULL);
+            c->data[0] = 'W'; 
+            mg_ws_printf(c, WEBSOCKET_OP_TEXT, "{\"%s\":\"%s\",\"%s\":%s}", "type","app_config","data", srv->get_config_json().c_str());
+            mg_ws_printf(c, WEBSOCKET_OP_TEXT, "{\"%s\":\"%s\",\"%s\":%s}", "type","key_config","data", srv->_json_keypad_config);        
+            srv->entities_iterator_.begin(srv->include_internal_);
+        
+        }  else {
+            srv->handleRequest(c,hm);
+        }
+  } 
+       (void) fn_data, (void) ev_data;
+}
+
 
 void WebServer::handleRequest(struct mg_connection *c,void *ev_data) {
    struct mg_http_message *hm = (struct mg_http_message *) ev_data;    
@@ -1625,6 +1793,83 @@ void WebServer::schedule_(std::function<void()> &&f) {
 #else
   this->defer(std::move(f));
 #endif
+}
+
+void WebServer::report_ota_error() {
+#ifdef USE_ARDUINO
+  StreamString ss;
+  Update.printError(ss);
+  char buf[100];
+  ESP_LOGW(TAG, "OTA Update failed! Error: %s", ss.c_str());  
+  snprintf(buf,100,"OTA Update failed! Error: %s", ss.c_str());
+  std::string ebuf=escape_json(buf);
+  this->push(OTA,ebuf.c_str());
+#endif
+}
+
+bool WebServer::handleUpload(size_t bodylen,  const String &filename, size_t index,uint8_t *data, size_t len, bool final) {
+    char buf[100];                                    
+#ifdef USE_ARDUINO
+  bool success;
+  if (index == 0) {
+    snprintf(buf,100,"OTA Update Start: %s", filename.c_str());
+    this->push(OTA,buf);
+    ESP_LOGI(TAG, "OTA Update Start: %s", filename.c_str());
+
+    this->ota_read_length_ = 0;
+
+    if (Update.isRunning()) {
+      Update.abort();
+      return false;
+    }
+    success = Update.begin(UPDATE_SIZE_UNKNOWN, U_FLASH);
+
+    if (!success) {
+      report_ota_error();
+      return false;
+    }
+  } else if (Update.hasError()) {
+     this->push(OTA,"OTA Update has error");      
+    // don't spam logs with errors if something failed at start
+    return false;
+  }
+
+  success = Update.write(data, len) == len;
+  if (!success) {
+    report_ota_error();
+    return false;
+  }
+  this->ota_read_length_ += len;
+
+  const uint32_t now = millis();
+  if (now - this->last_ota_progress_ > 1000) {
+    if (bodylen != 0) {
+      float percentage = (this->ota_read_length_ * 100.0f) / bodylen;
+      ESP_LOGD(TAG, "OTA in progress: %0.1f%%", percentage);
+      snprintf(buf,100,"OTA in progress: %0.1f%%", percentage);
+      this->push(OTA,buf);
+    } else {
+      ESP_LOGD(TAG, "OTA in progress: %u bytes read", this->ota_read_length_);
+      snprintf(buf,100, "OTA in progress: %u bytes read", this->ota_read_length_); 
+      this->push(OTA,buf);      
+    }
+
+    this->last_ota_progress_ = now;
+  }
+
+  if (final) {
+    if (Update.end(true)) {
+      ESP_LOGI(TAG, "OTA update successful!");
+      this->push(OTA,"OTA Update successful");      
+      this->set_timeout(1000, []() { App.safe_reboot(); });
+      return true;
+    } else {
+      report_ota_error();
+      return false;
+    }
+  }
+#endif
+return true;
 }
 
 }  // namespace web_server

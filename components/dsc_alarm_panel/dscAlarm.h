@@ -1,8 +1,8 @@
 //for project documenation visit https://github.com/Dilbert66/esphome-dsckeybus
 
 #pragma once
+
 #if !defined(ARDUINO_MQTT)
-#include "esphome.h"
 #include "esphome/core/defines.h"
 #include "esphome/core/component.h"
 #include "esphome/core/application.h"
