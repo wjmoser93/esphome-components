@@ -36,6 +36,7 @@ CONF_KEYPAD_URL="config_url"
 CONF_PARTITIONS="partitions"
 CONF_SERVICE_LAMBDA="service_lambda"
 
+
 web_server_ns = cg.esphome_ns.namespace("web_server")
 WebServer = web_server_ns.class_("WebServer", cg.Component, cg.Controller)
 
@@ -52,12 +53,6 @@ def default_url(config):
             config[CONF_CSS_URL] = ""
         if not (CONF_JS_URL in config):
             config[CONF_JS_URL] = "https://oi.esphome.io/v2/www.js"
-    return config
-
-
-def validate_local(config):
-    if CONF_LOCAL in config and config[CONF_VERSION] == 1:
-        raise cv.Invalid("'local' is not supported in version 1")
     return config
 
 
@@ -105,13 +100,13 @@ CONFIG_SCHEMA = cv.All(
                 rtl87xx=True,
             ): cv.boolean,
             cv.Optional(CONF_LOG, default=True): cv.boolean,
-            cv.Optional(CONF_LOCAL): cv.boolean,
+            cv.Optional(CONF_LOCAL, default=True): cv.boolean,
         }
     ).extend(cv.COMPONENT_SCHEMA),
-    cv.only_on([PLATFORM_ESP32, PLATFORM_ESP8266, PLATFORM_BK72XX, PLATFORM_RTL87XX]),
+    cv.only_on([PLATFORM_ESP32]),
     default_url,
-    validate_local,
     validate_ota,
+
 )
 
 
@@ -119,17 +114,18 @@ def build_index_html(config) -> str:
     html = "<!DOCTYPE html><html><head><meta charset=UTF-8><link rel=icon href=data:>"
     css_include = config.get(CONF_CSS_INCLUDE)
     js_include = config.get(CONF_JS_INCLUDE)
-    js_url = config.get(CONF_JS_URL)    
+    js_url = config.get(CONF_JS_URL)  
+    js_local=config.get(CONF_LOCAL);    
     if css_include:
         html += "<link rel=stylesheet href=/0.css>"
     if config[CONF_CSS_URL]:
         html += f'<link rel=stylesheet href="{config[CONF_CSS_URL]}">'
     html += "</head><body>"
-    if js_include or js_url:
-        html += "<script type=module src=/0.js></script>"
-    html += "<esp-app></esp-app>"
-    #if config[CONF_JS_URL]:
-     #   html += f'<script src="{config[CONF_JS_URL]}"></script>'
+    html += "<esp-app></esp-app>"  
+    if js_include or (js_url and js_local):
+        html += "<script src=/0.js></script>"
+    if js_url and not js_local:
+        html += f'<script src="{config[CONF_JS_URL]}"></script>'
     html += "</body></html>"
     return html
 
@@ -155,16 +151,17 @@ def add_resource_as_progmem(
 async def to_code(config):
     paren = await cg.get_variable(config[CONF_WEB_SERVER_BASE_ID])
 
-    var = cg.new_Pvariable(config[CONF_ID], paren)
+    var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
 
     cg.add_define("USE_WEBSERVER")
     version = config[CONF_VERSION]
 
-    cg.add(paren.set_port(config[CONF_PORT]))
+    cg.add(var.set_port(config[CONF_PORT]))
     cg.add_define("USE_WEBSERVER")
     cg.add_define("USE_WEBSERVER_PORT", config[CONF_PORT])
     cg.add_define("USE_WEBSERVER_VERSION", version)
+   # cg.add_define("MG_DATA_SIZE",32)
     
     if lambda_config := config.get(CONF_SERVICE_LAMBDA):
         lambda_ = await cg.process_lambda(
@@ -191,10 +188,12 @@ async def to_code(config):
         path = CORE.relative_config_path(config[CONF_CSS_INCLUDE])
         with open(file=path, encoding="utf-8") as css_file:
             add_resource_as_progmem("CSS_INCLUDE", css_file.read())
-    if CONF_JS_URL in config and config[CONF_JS_URL]:
+            
+    if CONF_JS_URL in config and config[CONF_JS_URL] and config[CONF_LOCAL]:
         cg.add_define("USE_WEBSERVER_JS_INCLUDE")
         response = requests.get(config[CONF_JS_URL])
-        add_resource_as_progmem("JS_INCLUDE", response.text)             
+        add_resource_as_progmem("JS_INCLUDE", response.text)   
+        
     if CONF_JS_INCLUDE in config:
         cg.add_define("USE_WEBSERVER_JS_INCLUDE")
         path = CORE.relative_config_path(config[CONF_JS_INCLUDE])
@@ -202,8 +201,6 @@ async def to_code(config):
             add_resource_as_progmem("JS_INCLUDE", js_file.read())
            
     cg.add(var.set_include_internal(config[CONF_INCLUDE_INTERNAL]))
-    if CONF_LOCAL in config and config[CONF_LOCAL]:
-        cg.add_define("USE_WEBSERVER_LOCAL")
         
     if CONF_KEYPAD_URL in config and config[CONF_KEYPAD_URL]:
         response = requests.get(config[CONF_KEYPAD_URL])
@@ -216,5 +213,8 @@ async def to_code(config):
             configuration = yaml.safe_load(file)
         output = json.dumps(configuration)
         cg.add(var.set_keypad_config(output))
+    if CORE.using_arduino:
+        if CORE.is_esp32:        
+            cg.add_library("Update", None)        
          
 

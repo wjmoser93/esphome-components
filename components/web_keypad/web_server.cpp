@@ -6,17 +6,13 @@
 #include "esphome/core/entity_base.h"
 #include "esphome/core/log.h"
 #include "esphome/core/util.h"
-
+#include "ArduinoJson.h"
 
 #if defined(USE_DSC_PANEL)
 #include "esphome/components/dsc_alarm_panel/dscAlarm.h"
 #endif
 #if defined(USE_VISTA_PANEL)
 #include "esphome/components/vista_alarm_panel/vistaalarm.h"
-#endif
-
-#ifdef USE_ARDUINO
-#include "StreamString.h"
 #endif
 
 #include <cstdlib>
@@ -33,15 +29,17 @@
 #include "esphome/components/climate/climate.h"
 #endif
 
-#ifdef USE_WEBSERVER_LOCAL
-#include "server_index.h"
+#ifdef USE_ARDUINO
+#include <StreamString.h>
+#include <Update.h>
 #endif
-
-
 namespace esphome {
 namespace web_server {
 
+
+
 static const char *const TAG = "web_server";
+void * webServerPtr;
 
 #ifdef USE_WEBSERVER_PRIVATE_NETWORK_ACCESS
 static const char *const HEADER_PNA_NAME = "Private-Network-Access-Name";
@@ -51,6 +49,7 @@ static const char *const HEADER_CORS_ALLOW_PNA = "Access-Control-Allow-Private-N
 #endif
 
 #if USE_WEBSERVER_VERSION == 1
+/*
 void write_row(AsyncResponseStream *stream, EntityBase *obj, const std::string &klass, const std::string &action,
                const std::function<void(AsyncResponseStream &stream, EntityBase *obj)> &action_func = nullptr) {
   stream->print("<tr class=\"");
@@ -71,9 +70,15 @@ void write_row(AsyncResponseStream *stream, EntityBase *obj, const std::string &
   stream->print("</td>");
   stream->print("</tr>");
 }
+*/
 #endif
 
-UrlMatch match_url(const std::string &url, bool only_domain = false) {
+UrlMatch match_url(const struct mg_str *urlstr, bool only_domain = false) {
+   char buf[urlstr->len + 1];
+   strncpy(buf,urlstr->ptr,urlstr->len);
+   buf[urlstr->len]=0;
+  std::string url=buf;
+  
   UrlMatch match;
   match.valid = false;
   size_t domain_end = url.find('/', 1);
@@ -99,11 +104,12 @@ UrlMatch match_url(const std::string &url, bool only_domain = false) {
   return match;
 }
 
-WebServer::WebServer(web_server_base::WebServerBase *base)
-    : base_(base), entities_iterator_(ListEntitiesIterator(this)) {
+WebServer::WebServer()
+    :  entities_iterator_(ListEntitiesIterator(this)) {
 #ifdef USE_ESP32
   to_schedule_lock_ = xSemaphoreCreateMutex();
 #endif
+   webServerPtr=this;
 }
 
 #if USE_WEBSERVER_VERSION == 1
@@ -130,34 +136,108 @@ std::string WebServer::get_config_json() {
     root["log"] = this->expose_log_;
     root["lang"] = "en";
     root["partitions"]=this->partitions_;
-   // ESP_LOGD("test","json config=%s",_json_keypad_config);
   });
 }
+
+std::string WebServer::escape_json(const char * input) {
+    std::string output;
+    output.reserve(strlen(input));
+
+    for (int i=0;i<strlen(input);i++)
+    {
+        
+        switch (input[i]) {
+            case 27 : 
+                    output+="\x27";
+                    break;
+            case '"':
+                output += "\\\"";
+                break;
+            case '/':
+                output += "\\/";
+                break;
+            case '\b':
+                output += "\\b";
+                break;
+            case '\f':
+                output += "\\f";
+                break;
+            case '\n':
+                output += "\\n";
+                break;
+            case '\r':
+                output += "\\r";
+                break;
+            case '\t':
+                output += "\\t";
+                break;
+            case '\\':
+                output += "\\\\";
+                break;
+            default:
+                output += input[i];
+                break;
+        }
+
+    }
+
+    return output;
+}
+/*
+#ifdef ASYNCWEB
+
+void WebServer::webPollTask(void * args) {
+
+  WebServer * _this = (WebServer * ) args;
+  static unsigned long checkTime = millis();  
+  for (;;) { 
+     if (network::is_connected() && _this->c != NULL)  
+        mg_mgr_poll(&_this->mgr, 1000) ;
+        if (millis() - checkTime > 30000) {
+            UBaseType_t uxHighWaterMark = uxTaskGetStackHighWaterMark(NULL);
+            printf("\nTaskupdates free memory: %5d\n", (uint16_t) uxHighWaterMark);
+            checkTime=millis();
+        }
+  }
+  vTaskDelete(NULL);
+}
+
+#endif
+*/
 
 void WebServer::setup() {
   ESP_LOGCONFIG(TAG, "Setting up web server...");
   this->setup_controller(this->include_internal_);
-  this->base_->init();
 
-  this->events_.onConnect([this](AsyncEventSourceClient *client) {
-    // Configure reconnect timeout and send config
-    client->send(this->get_config_json().c_str(), "ping", millis(), 30000);
-    this->entities_iterator_.begin(this->include_internal_);
-  });
-
+   mg_mgr_init(&mgr); 
 #ifdef USE_LOGGER
   if (logger::global_logger != nullptr && this->expose_log_) {
     logger::global_logger->add_on_log_callback(
-        [this](int level, const char *tag, const char *message) { this->events_.send(message, "log", millis()); });
+        [this](int level, const char *tag, const char *message) { 
+        std::string msg=escape_json(message);
+        this->push(LOG,msg.c_str()); 
+        });
   }
 #endif
-  this->base_->add_handler(&this->events_);
-  this->base_->add_handler(this);
 
-  if (this->allow_ota_)
-    this->base_->add_ota_handler();
-
-  this->set_interval(10000, [this]() { this->events_.send("", "ping", millis(), 30000); });
+  this->set_interval(10000, [this]() {
+      this->push(PING,"",millis(),30000);
+      });
+      /*
+#ifdef ASYNCWEB   
+      
+    int ASYNC_CORE=0;
+    xTaskCreatePinnedToCore(
+    this -> webPollTask, //Function to implement the task
+    "webPollTask", //Name of the task
+    6200, //Stack size in words
+    (void * ) this, //Task input parameter
+    10, //Priority of the task
+    NULL, //Task handle.
+    ASYNC_CORE //Core where the task should run
+  );  
+#endif     
+*/      
 }
 void WebServer::loop() {
 #ifdef USE_ESP32
@@ -177,21 +257,34 @@ void WebServer::loop() {
   }
 #endif
   this->entities_iterator_.advance();
+     
+  if (firstrun_ && network::is_connected()) {
+    mg_mgr_init(&mgr);        // Initialise event manager
+    char addr[50];
+    sprintf(addr,"http://0.0.0.0:%d",port_);
+    printf("Starting web server on %s:%d\n", network::get_use_address().c_str(),port_);
+   if ((c = mg_http_listen(&mgr, addr, ev_handler, &mgr)) == NULL) {
+     printf("Cannot listen on address..");
+      return;
+    }
+    firstrun_=false;
+   }
+   
+//#if not defined(ASYNCWEB)   
+   if (network::is_connected() && c != NULL)
+      mg_mgr_poll(&mgr, 0);
+//#endif  
+
 }
 void WebServer::dump_config() {
   ESP_LOGCONFIG(TAG, "Web Server:");
-  ESP_LOGCONFIG(TAG, "  Address: %s:%u", network::get_use_address().c_str(), this->base_->get_port());
+  ESP_LOGCONFIG(TAG, "  Address: %s:%u", network::get_use_address().c_str(), port_);
 }
 float WebServer::get_setup_priority() const { return setup_priority::WIFI - 1.0f; }
 
-#ifdef USE_WEBSERVER_LOCAL
-void WebServer::handle_index_request(AsyncWebServerRequest *request) {
-  AsyncWebServerResponse *response = request->beginResponse_P(200, "text/html", INDEX_GZ, sizeof(INDEX_GZ));
-  response->addHeader("Content-Encoding", "gzip");
-  request->send(response);
-}
-#elif USE_WEBSERVER_VERSION == 1
-void WebServer::handle_index_request(AsyncWebServerRequest *request) {
+#if USE_WEBSERVER_VERSION == 1
+/*
+void WebServer::handle_index_request(struct mg_connection *c) {
   AsyncResponseStream *stream = request->beginResponseStream("text/html");
   const std::string &title = App.get_name();
   stream->print(F("<!DOCTYPE html><html lang=\"en\"><head><meta charset=UTF-8><meta "
@@ -370,42 +463,56 @@ void WebServer::handle_index_request(AsyncWebServerRequest *request) {
   }
   stream->print(F("</article></body></html>"));
   request->send(stream);
+  */
 }
 #elif USE_WEBSERVER_VERSION == 2
-void WebServer::handle_index_request(AsyncWebServerRequest *request) {
-  AsyncWebServerResponse *response =
-      request->beginResponse_P(200, "text/html", ESPHOME_WEBSERVER_INDEX_HTML, ESPHOME_WEBSERVER_INDEX_HTML_SIZE);
-  // No gzip header here because the HTML file is so small
-  request->send(response);
+void WebServer::handle_index_request(struct mg_connection *c) {
+  
+          const char * buf= (const char *) ESPHOME_WEBSERVER_INDEX_HTML;  
+          mg_printf(c, "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: %d\r\n\r\n", ESPHOME_WEBSERVER_INDEX_HTML_SIZE );
+          mg_send(c,buf,ESPHOME_WEBSERVER_INDEX_HTML_SIZE);
+          c->is_resp = 0;  
+
 }
 #endif
 
 #ifdef USE_WEBSERVER_PRIVATE_NETWORK_ACCESS
-void WebServer::handle_pna_cors_request(AsyncWebServerRequest *request) {
+void WebServer::handle_pna_cors_request(struct mg_connection *c) {
+    /*
   AsyncWebServerResponse *response = request->beginResponse(200, "");
   response->addHeader(HEADER_CORS_ALLOW_PNA, "true");
   response->addHeader(HEADER_PNA_NAME, App.get_name().c_str());
   std::string mac = get_mac_address_pretty();
   response->addHeader(HEADER_PNA_ID, mac.c_str());
   request->send(response);
+  */
+ std::string mac = get_mac_address_pretty();  
+  mg_printf(c,"HTTP/1.1 200 OK\r\n%s:%s\r\n%s:%s\r\n%s:%s\r\n\r\n",HEADER_CORS_ALLOW_PNA,"true",HEADER_PNA_NAME,App.get_name().c_str(),HEADER_PNA_ID,mac.c_str());
+  c->is_resp=0;
+
 }
 #endif
 
 #ifdef USE_WEBSERVER_CSS_INCLUDE
-void WebServer::handle_css_request(AsyncWebServerRequest *request) {
-  AsyncWebServerResponse *response =
-      request->beginResponse_P(200, "text/css", ESPHOME_WEBSERVER_CSS_INCLUDE, ESPHOME_WEBSERVER_CSS_INCLUDE_SIZE);
-  response->addHeader("Content-Encoding", "gzip");
-  request->send(response);
+void WebServer::handle_css_request(struct mg_connection *c) {
+   
+          const char * buf= (const char *) ESPHOME_WEBSERVER_CSS_INCLUDE;
+          mg_printf(c, "HTTP/1.1 200 OK\r\nContent-Type: text/javascript\r\nContent-Encoding: gzip\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: %d\r\n\r\n", ESPHOME_WEBSERVER_CSS_INCLUDE_SIZE );
+          mg_send(c,buf,ESPHOME_WEBSERVER_CSS_INCLUDE_SIZE);
+          c->is_resp = 0;    
+     
 }
 #endif
 
 #ifdef USE_WEBSERVER_JS_INCLUDE
-void WebServer::handle_js_request(AsyncWebServerRequest *request) {
-  AsyncWebServerResponse *response =
-      request->beginResponse_P(200, "text/javascript", ESPHOME_WEBSERVER_JS_INCLUDE, ESPHOME_WEBSERVER_JS_INCLUDE_SIZE);
-  response->addHeader("Content-Encoding", "gzip");
-  request->send(response);
+void WebServer::handle_js_request(struct mg_connection *c) {
+
+         
+          const char * buf= (const char *) ESPHOME_WEBSERVER_JS_INCLUDE;
+          mg_printf(c, "HTTP/1.1 200 OK\r\nContent-Type: text/javascript; charset=utf-8\r\nContent-Encoding: gzip\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: %d\r\n\r\n", ESPHOME_WEBSERVER_JS_INCLUDE_SIZE );
+          mg_send(c,buf,ESPHOME_WEBSERVER_JS_INCLUDE_SIZE);
+          c->is_resp = 0;      
+            
 }
 #endif
 
@@ -427,17 +534,19 @@ void WebServer::handle_js_request(AsyncWebServerRequest *request) {
 
 #ifdef USE_SENSOR
 void WebServer::on_sensor_update(sensor::Sensor *obj, float state) {
-  this->events_.send(this->sensor_json(obj, state, DETAIL_STATE).c_str(), "state");
+  //this->events_.send(this->sensor_json(obj, state, DETAIL_STATE).c_str(), "state");
+this->push(STATE,this->sensor_json(obj, state, DETAIL_STATE).c_str());  
 }
-void WebServer::handle_sensor_request(AsyncWebServerRequest *request, const UrlMatch &match) {
+void WebServer::handle_sensor_request(struct mg_connection *c, void *ev_data, const UrlMatch &match) {
   for (sensor::Sensor *obj : App.get_sensors()) {
     if (obj->get_object_id() != match.id)
       continue;
     std::string data = this->sensor_json(obj, obj->state, DETAIL_STATE);
-    request->send(200, "application/json", data.c_str());
+    mg_http_reply(c, 200, "Content-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n", "%s", data.c_str());          
+    //request->send(200, "application/json", data.c_str());
     return;
   }
-  request->send(404);
+   mg_http_reply(c,404,"","");
 }
 std::string WebServer::sensor_json(sensor::Sensor *obj, float value, JsonDetail start_config) {
   return json::build_json([obj, value, start_config](JsonObject root) {
@@ -456,17 +565,19 @@ std::string WebServer::sensor_json(sensor::Sensor *obj, float value, JsonDetail 
 
 #ifdef USE_TEXT_SENSOR
 void WebServer::on_text_sensor_update(text_sensor::TextSensor *obj, const std::string &state) {
-  this->events_.send(this->text_sensor_json(obj, state, DETAIL_STATE).c_str(), "state");
+  //this->events_.send(this->text_sensor_json(obj, state, DETAIL_STATE).c_str(), "state");
+this->push(STATE,this->text_sensor_json(obj, state, DETAIL_STATE).c_str());   
 }
-void WebServer::handle_text_sensor_request(AsyncWebServerRequest *request, const UrlMatch &match) {
+void WebServer::handle_text_sensor_request(struct mg_connection *c, void *ev_data, const UrlMatch &match) {
   for (text_sensor::TextSensor *obj : App.get_text_sensors()) {
     if (obj->get_object_id() != match.id)
       continue;
     std::string data = this->text_sensor_json(obj, obj->state, DETAIL_STATE);
-    request->send(200, "application/json", data.c_str());
+    //request->send(200, "application/json", data.c_str());
+    mg_http_reply(c, 200, "Content-Type: application/jsonAccess-Control-Allow-Origin: *\r\n\r\n", "%s", data.c_str());          
     return;
   }
-  request->send(404);
+   mg_http_reply(c,404,"","");
 }
 #if defined(USE_CUSTOM_ID)
 std::string WebServer::text_sensor_json(text_sensor::TextSensor *obj, const std::string &value,
@@ -488,7 +599,8 @@ std::string WebServer::text_sensor_json(text_sensor::TextSensor *obj, const std:
 
 #ifdef USE_SWITCH
 void WebServer::on_switch_update(switch_::Switch *obj, bool state) {
-  this->events_.send(this->switch_json(obj, state, DETAIL_STATE).c_str(), "state");
+  //this->events_.send(this->switch_json(obj, state, DETAIL_STATE).c_str(), "state");
+this->push(STATE,this->switch_json(obj, state, DETAIL_STATE).c_str());   
 }
 std::string WebServer::switch_json(switch_::Switch *obj, bool value, JsonDetail start_config) {
   return json::build_json([obj, value, start_config](JsonObject root) {
@@ -498,29 +610,31 @@ std::string WebServer::switch_json(switch_::Switch *obj, bool value, JsonDetail 
     }
   });
 }
-void WebServer::handle_switch_request(AsyncWebServerRequest *request, const UrlMatch &match) {
+void WebServer::handle_switch_request(struct mg_connection *c, void *ev_data, const UrlMatch &match) {
   for (switch_::Switch *obj : App.get_switches()) {
     if (obj->get_object_id() != match.id)
       continue;
-
-    if (request->method() == HTTP_GET) {
+ struct mg_http_message *hm = (struct mg_http_message *) ev_data;  
+   // if (request->method() == HTTP_GET) {
+    if (mg_vcasecmp(&hm->method, "GET") == 0) {       
       std::string data = this->switch_json(obj, obj->state, DETAIL_STATE);
-      request->send(200, "application/json", data.c_str());
+      //request->send(200, "application/json", data.c_str());
+      mg_http_reply(c, 200, "Content-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n", "%s", data.c_str());      
     } else if (match.method == "toggle") {
       this->schedule_([obj]() { obj->toggle(); });
-      request->send(200);
+        mg_http_reply(c,200,"","");
     } else if (match.method == "turn_on") {
       this->schedule_([obj]() { obj->turn_on(); });
-      request->send(200);
+        mg_http_reply(c,200,"","");
     } else if (match.method == "turn_off") {
       this->schedule_([obj]() { obj->turn_off(); });
-      request->send(200);
+        mg_http_reply(c,200,"","");
     } else {
-      request->send(404);
+       mg_http_reply(c,404,"","");
     }
     return;
   }
-  request->send(404);
+   mg_http_reply(c,404,"","");
 }
 #endif
 
@@ -530,26 +644,29 @@ std::string WebServer::button_json(button::Button *obj, JsonDetail start_config)
       [obj, start_config](JsonObject root) { set_json_id(root, obj, "button-" + obj->get_object_id(), start_config); });
 }
 
-void WebServer::handle_button_request(AsyncWebServerRequest *request, const UrlMatch &match) {
+void WebServer::handle_button_requeststruct mg_connection *c, void *ev_data, const UrlMatch &match) {
+ struct mg_http_message *hm = (struct mg_http_message *) ev_data;       
   for (button::Button *obj : App.get_buttons()) {
     if (obj->get_object_id() != match.id)
       continue;
-    if (request->method() == HTTP_POST && match.method == "press") {
+      if (mg_vcasecmp(&hm->method, "GET") == 0 && match.method == "press") {  
+   // if (request->method() == HTTP_POST && match.method == "press") {
       this->schedule_([obj]() { obj->press(); });
-      request->send(200);
+        mg_http_reply(c,200,"","");
       return;
     } else {
-      request->send(404);
+       mg_http_reply(c,404,"","");
     }
     return;
   }
-  request->send(404);
+   mg_http_reply(c,404,"","");
 }
 #endif
 
 #ifdef USE_BINARY_SENSOR
 void WebServer::on_binary_sensor_update(binary_sensor::BinarySensor *obj, bool state) {
-  this->events_.send(this->binary_sensor_json(obj, state, DETAIL_STATE).c_str(), "state");
+  //this->events_.send(this->binary_sensor_json(obj, state, DETAIL_STATE).c_str(), "state");
+this->push(STATE,this->binary_sensor_json(obj, state, DETAIL_STATE).c_str());   
 }
 #if defined(USE_CUSTOM_ID)
 std::string WebServer::binary_sensor_json(binary_sensor::BinarySensor *obj, bool value, JsonDetail start_config) {
@@ -567,21 +684,26 @@ std::string WebServer::binary_sensor_json(binary_sensor::BinarySensor *obj, bool
 }
 #endif
 
-void WebServer::handle_binary_sensor_request(AsyncWebServerRequest *request, const UrlMatch &match) {
+void WebServer::handle_binary_sensor_request(struct mg_connection *c, void *ev_data, const UrlMatch &match) {
   for (binary_sensor::BinarySensor *obj : App.get_binary_sensors()) {
     if (obj->get_object_id() != match.id)
       continue;
     std::string data = this->binary_sensor_json(obj, obj->state, DETAIL_STATE);
-    request->send(200, "application/json", data.c_str());
+    //request->send(200, "application/json", data.c_str());
+    mg_http_reply(c, 200, "Content-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n", "%s", data.c_str());      
     return;
   }
-  request->send(404);
+   mg_http_reply(c,404,"","");
 }
 #endif
 
 #ifdef USE_FAN
-void WebServer::on_fan_update(fan::Fan *obj) { this->events_.send(this->fan_json(obj, DETAIL_STATE).c_str(), "state"); }
+void WebServer::on_fan_update(fan::Fan *obj) {
+    //this->p.send(this->fan_json(obj, DETAIL_STATE).c_str(), "state"); 
+  this->push(STATE,this->fan_json(obj, DETAIL_STATE).c_str());     
+    }
 std::string WebServer::fan_json(fan::Fan *obj, JsonDetail start_config) {
+    
   return json::build_json([obj, start_config](JsonObject root) {
     set_json_state_value(root, obj, "fan-" + obj->get_object_id(), obj->state ? "ON" : "OFF", obj->state, start_config);
     const auto traits = obj->get_traits();
@@ -593,21 +715,26 @@ std::string WebServer::fan_json(fan::Fan *obj, JsonDetail start_config) {
       root["oscillation"] = obj->oscillating;
   });
 }
-void WebServer::handle_fan_request(AsyncWebServerRequest *request, const UrlMatch &match) {
+void WebServer::handle_fan_request(struct mg_connection *c, void *ev_data, const UrlMatch &match) {
+  
   for (fan::Fan *obj : App.get_fans()) {
     if (obj->get_object_id() != match.id)
       continue;
 
-    if (request->method() == HTTP_GET) {
+   // if (request->method() == HTTP_GET) {
+    if (mg_vcasecmp(&hm->method, "GET") == 0) {         
       std::string data = this->fan_json(obj, DETAIL_STATE);
-      request->send(200, "application/json", data.c_str());
+      //request->send(200, "application/json", data.c_str());
+      mg_http_reply(c, 200, "Content-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n", "%s", data.c_str());        
     } else if (match.method == "toggle") {
       this->schedule_([obj]() { obj->toggle().perform(); });
-      request->send(200);
+        mg_http_reply(c,200,"","");
     } else if (match.method == "turn_on") {
       auto call = obj->turn_on();
-      if (request->hasParam("speed_level")) {
-        auto speed_level = request->getParam("speed_level")->value();
+     // if (request->hasParam("speed_level")) {
+       char buf[100];
+        if (mg_http_get_var(&hm->body,"speed_level",buf,sizeof(buf)) > 0) {         
+        auto speed_level = buf;
         auto val = parse_number<int>(speed_level.c_str());
         if (!val.has_value()) {
           ESP_LOGW(TAG, "Can't convert '%s' to number!", speed_level.c_str());
@@ -615,8 +742,10 @@ void WebServer::handle_fan_request(AsyncWebServerRequest *request, const UrlMatc
         }
         call.set_speed(*val);
       }
-      if (request->hasParam("oscillation")) {
-        auto speed = request->getParam("oscillation")->value();
+     // if (request->hasParam("oscillation")) {
+    char buf[100];
+    if (mg_http_get_var(&hm->body,"oscillation",buf,sizeof(buf)) > 0) {         
+        auto speed = buf;
         auto val = parse_on_off(speed.c_str());
         switch (val) {
           case PARSE_ON:
@@ -629,112 +758,141 @@ void WebServer::handle_fan_request(AsyncWebServerRequest *request, const UrlMatc
             call.set_oscillating(!obj->oscillating);
             break;
           case PARSE_NONE:
-            request->send(404);
+             mg_http_reply(c,404,"","");
             return;
         }
       }
       this->schedule_([call]() mutable { call.perform(); });
-      request->send(200);
+        mg_http_reply(c,200,"","");
     } else if (match.method == "turn_off") {
       this->schedule_([obj]() { obj->turn_off().perform(); });
-      request->send(200);
+        mg_http_reply(c,200,"","");
     } else {
-      request->send(404);
+       mg_http_reply(c,404,"","");
     }
     return;
   }
-  request->send(404);
+  
+   mg_http_reply(c,404,"","");
+
+
 }
 #endif
 
 #ifdef USE_LIGHT
 void WebServer::on_light_update(light::LightState *obj) {
-  this->events_.send(this->light_json(obj, DETAIL_STATE).c_str(), "state");
+ // this->events_.send(this->light_json(obj, DETAIL_STATE).c_str(), "state");
+this->push(STATE,this->light_json(obj, DETAIL_STATE).c_str());  
 }
-void WebServer::handle_light_request(AsyncWebServerRequest *request, const UrlMatch &match) {
+void WebServer::handle_light_request(struct mg_connection *c, void *ev_data, const UrlMatch &match) {
+    
   for (light::LightState *obj : App.get_lights()) {
     if (obj->get_object_id() != match.id)
       continue;
 
-    if (request->method() == HTTP_GET) {
+    //if (request->method() == HTTP_GET) {
+    if (mg_vcasecmp(&hm->method, "GET") == 0) { 
       std::string data = this->light_json(obj, DETAIL_STATE);
-      request->send(200, "application/json", data.c_str());
+      //request->send(200, "application/json", data.c_str());
+      mg_http_reply(c, 200, "Content-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n", "%s", data.c_str());       
     } else if (match.method == "toggle") {
       this->schedule_([obj]() { obj->toggle().perform(); });
-      request->send(200);
+        mg_http_reply(c,200,"","");
     } else if (match.method == "turn_on") {
       auto call = obj->turn_on();
-      if (request->hasParam("brightness")) {
-        auto brightness = parse_number<float>(request->getParam("brightness")->value().c_str());
+      //if (request->hasParam("brightness")) {
+       char buf[100];
+       if (mg_http_get_var(&hm->body,"brightness",buf,sizeof(buf)) > 0) {          
+        auto brightness = parse_number<float>(buf);
         if (brightness.has_value()) {
           call.set_brightness(*brightness / 255.0f);
         }
       }
-      if (request->hasParam("r")) {
-        auto r = parse_number<float>(request->getParam("r")->value().c_str());
+     // if (request->hasParam("r")) {
+       char buf[100];
+       if (mg_http_get_var(&hm->body,"r",buf,sizeof(buf)) > 0) {          
+        auto r = parse_number<float>(buf);
         if (r.has_value()) {
           call.set_red(*r / 255.0f);
         }
       }
-      if (request->hasParam("g")) {
-        auto g = parse_number<float>(request->getParam("g")->value().c_str());
+     // if (request->hasParam("g")) {
+       char buf[100];
+       if (mg_http_get_var(&hm->body,"g",buf,sizeof(buf)) > 0) {          
+        auto g = parse_number<float>(buf);
         if (g.has_value()) {
           call.set_green(*g / 255.0f);
         }
       }
-      if (request->hasParam("b")) {
-        auto b = parse_number<float>(request->getParam("b")->value().c_str());
+     // if (request->hasParam("b")) {
+       char buf[100];
+       if (mg_http_get_var(&hm->body,"b",buf,sizeof(buf)) > 0) {          
+        auto b = parse_number<float>(buf);
         if (b.has_value()) {
           call.set_blue(*b / 255.0f);
         }
       }
-      if (request->hasParam("white_value")) {
-        auto white_value = parse_number<float>(request->getParam("white_value")->value().c_str());
+     // if (request->hasParam("white_value")) {
+       char buf[100];
+       if (mg_http_get_var(&hm->body,"white_value",buf,sizeof(buf)) > 0) {          
+        auto white_value = parse_number<float>(buf);
         if (white_value.has_value()) {
           call.set_white(*white_value / 255.0f);
         }
       }
-      if (request->hasParam("color_temp")) {
-        auto color_temp = parse_number<float>(request->getParam("color_temp")->value().c_str());
+     // if (request->hasParam("color_temp")) {
+       char buf[100];
+       if (mg_http_get_var(&hm->body,"color_temp",buf,sizeof(buf)) > 0) {          
+        auto color_temp = parse_number<float>(buf);
         if (color_temp.has_value()) {
           call.set_color_temperature(*color_temp);
         }
       }
-      if (request->hasParam("flash")) {
-        auto flash = parse_number<uint32_t>(request->getParam("flash")->value().c_str());
+      //if (request->hasParam("flash")) {
+       char buf[100];
+       if (mg_http_get_var(&hm->body,"flash",buf,sizeof(buf)) > 0) {           
+        auto flash = parse_number<uint32_t>(buf);
         if (flash.has_value()) {
           call.set_flash_length(*flash * 1000);
         }
       }
-      if (request->hasParam("transition")) {
-        auto transition = parse_number<uint32_t>(request->getParam("transition")->value().c_str());
+      //if (request->hasParam("transition")) {
+       char buf[100];
+       if (mg_http_get_var(&hm->body,"transition",buf,sizeof(buf)) > 0) {           
+        auto transition = parse_number<uint32_t>(buf);
         if (transition.has_value()) {
           call.set_transition_length(*transition * 1000);
         }
       }
-      if (request->hasParam("effect")) {
-        const char *effect = request->getParam("effect")->value().c_str();
+     // if (request->hasParam("effect")) {
+       char buf[100];
+       if (mg_http_get_var(&hm->body,"effect",buf,sizeof(buf)) > 0) {          
+        const char *effect = buf;
         call.set_effect(effect);
       }
 
       this->schedule_([call]() mutable { call.perform(); });
-      request->send(200);
+        mg_http_reply(c,200,"","");
     } else if (match.method == "turn_off") {
       auto call = obj->turn_off();
-      if (request->hasParam("transition")) {
-        auto transition = parse_number<uint32_t>(request->getParam("transition")->value().c_str());
+     // if (request->hasParam("transition")) {
+       char buf[100];
+       if (mg_http_get_var(&hm->body,"transition",buf,sizeof(buf)) > 0) {          
+        auto transition = parse_number<uint32_t>(buf);
         if (transition.has_value()) {
           call.set_transition_length(*transition * 1000);
         }
       }
       this->schedule_([call]() mutable { call.perform(); });
-      request->send(200);
+        mg_http_reply(c,200,"","");
     } else {
-      request->send(404);
+       mg_http_reply(c,404,"","");
     }
     return;
   }
-  request->send(404);
+  
+   mg_http_reply(c,404,"","");
+  
 }
 std::string WebServer::light_json(light::LightState *obj, JsonDetail start_config) {
   return json::build_json([obj, start_config](JsonObject root) {
@@ -755,16 +913,20 @@ std::string WebServer::light_json(light::LightState *obj, JsonDetail start_confi
 
 #ifdef USE_COVER
 void WebServer::on_cover_update(cover::Cover *obj) {
-  this->events_.send(this->cover_json(obj, DETAIL_STATE).c_str(), "state");
+ // this->events_.send(this->cover_json(obj, DETAIL_STATE).c_str(), "state");
+this->push(STATE,this->cover_json(obj, DETAIL_STATE).c_str());  
 }
-void WebServer::handle_cover_request(AsyncWebServerRequest *request, const UrlMatch &match) {
+void WebServer::handle_cover_request(struct mg_connection *c, void *ev_data, const UrlMatch &match) {
+ struct mg_http_message *hm = (struct mg_http_message *) ev_data;      
   for (cover::Cover *obj : App.get_covers()) {
     if (obj->get_object_id() != match.id)
       continue;
 
-    if (request->method() == HTTP_GET) {
+    //if (request->method() == HTTP_GET) {
+    if (mg_vcasecmp(&hm->method, "GET") == 0) {        
       std::string data = this->cover_json(obj, DETAIL_STATE);
-      request->send(200, "application/json", data.c_str());
+     // request->send(200, "application/json", data.c_str());
+      mg_http_reply(c, 200, "Content-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n", "%s", data.c_str());     
       continue;
     }
 
@@ -776,35 +938,43 @@ void WebServer::handle_cover_request(AsyncWebServerRequest *request, const UrlMa
     } else if (match.method == "stop") {
       call.set_command_stop();
     } else if (match.method != "set") {
-      request->send(404);
+       mg_http_reply(c,404,"","");
       return;
     }
 
     auto traits = obj->get_traits();
-    if ((request->hasParam("position") && !traits.get_supports_position()) ||
-        (request->hasParam("tilt") && !traits.get_supports_tilt())) {
-      request->send(409);
-      return;
-    }
 
-    if (request->hasParam("position")) {
-      auto position = parse_number<float>(request->getParam("position")->value().c_str());
+   // if ((request->hasParam("position") && !traits.get_supports_position()) ||
+        //(request->hasParam("tilt") && !traits.get_supports_tilt())) {
+       char buf[50];
+       bool p= (mg_http_get_var(&hm->body,"position",buf,sizeof(buf)) > 0);
+       bool t= (mg_http_get_var(&hm->body,"tilt",buf,sizeof(buf)) > 0); 
+       if (p && !traits.get_supports_position()) || t && !traits.get_supports_tilt())) {
+            //request->send(409);
+        mg_http_reply(c,409,"","");            
+        return;
+        }
+
+    char buf[100];
+    if (mg_http_get_var(&hm->body,"position",buf,sizeof(buf)) > 0) {
+      auto position = parse_number<float>(buf);
       if (position.has_value()) {
         call.set_position(*position);
       }
     }
-    if (request->hasParam("tilt")) {
-      auto tilt = parse_number<float>(request->getParam("tilt")->value().c_str());
+    if (mg_http_get_var(&hm->body,"tilt",buf,sizeof(buf)) > 0) {
+      auto position = parse_number<float>(buf);
+      auto tilt = parse_number<float>(buf);
       if (tilt.has_value()) {
         call.set_tilt(*tilt);
       }
     }
 
     this->schedule_([call]() mutable { call.perform(); });
-    request->send(200);
+      mg_http_reply(c,200,"","");
     return;
   }
-  request->send(404);
+   mg_http_reply(c,404,"","");
 }
 std::string WebServer::cover_json(cover::Cover *obj, JsonDetail start_config) {
   return json::build_json([obj, start_config](JsonObject root) {
@@ -820,35 +990,41 @@ std::string WebServer::cover_json(cover::Cover *obj, JsonDetail start_config) {
 
 #ifdef USE_NUMBER
 void WebServer::on_number_update(number::Number *obj, float state) {
-  this->events_.send(this->number_json(obj, state, DETAIL_STATE).c_str(), "state");
+  //this->events_.send(this->number_json(obj, state, DETAIL_STATE).c_str(), "state");
+this->push(STATE,this->number_json(obj, state, DETAIL_STATE).c_str());  
 }
-void WebServer::handle_number_request(AsyncWebServerRequest *request, const UrlMatch &match) {
+void WebServer::handle_number_request(struct mg_connection *c, void *ev_data, const UrlMatch &match) {
+ struct mg_http_message *hm = (struct mg_http_message *) ev_data;      
   for (auto *obj : App.get_numbers()) {
     if (obj->get_object_id() != match.id)
       continue;
 
-    if (request->method() == HTTP_GET) {
+    //if (request->method() == HTTP_GET) {
+    if (mg_vcasecmp(&hm->method, "GET") == 0) {        
       std::string data = this->number_json(obj, obj->state, DETAIL_STATE);
-      request->send(200, "application/json", data.c_str());
+     // request->send(200, "application/json", data.c_str());
+      mg_http_reply(c, 200, "Content-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n", "%s", data.c_str());      
       return;
     }
     if (match.method != "set") {
-      request->send(404);
+       mg_http_reply(c,404,"","");
       return;
     }
 
     auto call = obj->make_call();
-    if (request->hasParam("value")) {
-      auto value = parse_number<float>(request->getParam("value")->value().c_str());
+    char buf[100];
+    if (mg_http_get_var(&hm->body,"value",buf,sizeof(buf)) > 0) {
+   // if (request->hasParam("value")) {
+      auto value = parse_number<float>(buf);
       if (value.has_value())
         call.set_value(*value);
     }
 
     this->schedule_([call]() mutable { call.perform(); });
-    request->send(200);
+      mg_http_reply(c,200,"","");
     return;
   }
-  request->send(404);
+   mg_http_reply(c,404,"","");
 }
 
 std::string WebServer::number_json(number::Number *obj, float value, JsonDetail start_config) {
@@ -876,34 +1052,41 @@ std::string WebServer::number_json(number::Number *obj, float value, JsonDetail 
 
 #ifdef USE_TEXT
 void WebServer::on_text_update(text::Text *obj, const std::string &state) {
-  this->events_.send(this->text_json(obj, state, DETAIL_STATE).c_str(), "state");
+  //this->events_.send(this->text_json(obj, state, DETAIL_STATE).c_str(), "state");
+this->push(STATE,this->text_json(obj, state, DETAIL_STATE).c_str());   
 }
-void WebServer::handle_text_request(AsyncWebServerRequest *request, const UrlMatch &match) {
+void WebServer::handle_text_request(struct mg_connection *c, void *ev_data, const UrlMatch &match) {
+ struct mg_http_message *hm = (struct mg_http_message *) ev_data;      
   for (auto *obj : App.get_texts()) {
     if (obj->get_object_id() != match.id)
       continue;
 
-    if (request->method() == HTTP_GET) {
+    //if (request->method() == HTTP_GET) {
+    if (mg_vcasecmp(&hm->method, "GET") == 0) {        
       std::string data = this->text_json(obj, obj->state, DETAIL_STATE);
-      request->send(200, "text/json", data.c_str());
+     // request->send(200, "text/json", data.c_str());
+      mg_http_reply(c, 200, "Content-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n", "%s", data.c_str());      
       return;
     }
     if (match.method != "set") {
-      request->send(404);
+       mg_http_reply(c,404,"","");
       return;
     }
 
     auto call = obj->make_call();
-    if (request->hasParam("value")) {
-      String value = request->getParam("value")->value();
-      call.set_value(value.c_str());
+   // if (request->hasParam("value")) {
+    char buf[100];
+    if (mg_http_get_var(&hm->body,"value",buf,sizeof(buf)) > 0) {
+      auto value=buf;       
+      //String value = request->getParam("value")->value();
+      call.set_value(value);
     }
 
     this->defer([call]() mutable { call.perform(); });
-    request->send(200);
+      mg_http_reply(c,200,"","");
     return;
   }
-  request->send(404);
+   mg_http_reply(c,404,"","");
 }
 
 std::string WebServer::text_json(text::Text *obj, const std::string &value, JsonDetail start_config) {
@@ -926,23 +1109,14 @@ std::string WebServer::text_json(text::Text *obj, const std::string &value, Json
 #endif
 
 
-    long int toInt(std::string s, int base) {
+    long int WebServer::toInt(std::string s, int base) {
       if (s.empty() || std::isspace(s[0])) return 0;
       char * p;
       long int li = strtol(s.c_str(), & p, base);
       return li;
     }
-    /*
-    auto err = deserializeJson(doc, msg);
-        if (!err) {
-          JsonObject root = doc.as<JsonObject>();
-          if (root.containsKey("btn_single_click")) {
-              */
-void WebServer::handle_alarm_panel_request(AsyncWebServerRequest *request, const UrlMatch &match) {
-    if (match.method != "set" && match.method != "getconfig") {
-      request->send(404);
-      return;
-    }
+    
+bool WebServer::callKeyService(const char *buf,int partition) {
 #if defined(USE_DSC_PANEL) || defined (USE_VISTA_PANEL)
 
 #ifdef USE_DSC_PANEL
@@ -950,70 +1124,51 @@ void WebServer::handle_alarm_panel_request(AsyncWebServerRequest *request, const
    #else     
      auto * alarmPanel=static_cast<alarm_panel::vistaECPHome*>(alarm_panel::alarmPanelPtr);
 #endif 
-
-
-    /*
-int params = request->params();
-ESP_LOGD("test", "Params=%d",params);
-for(int i=0;i<params;i++){
-  AsyncWebParameter* p = request->getParam(i);
-  if(p->isFile()){ //p->isPost() is also true
-    ESP_LOGD("test","FILE[%s]: %s, size: %u\n", p->name().c_str(), p->value().c_str(), p->size());
-  } else if(p->isPost()){
-    ESP_LOGD("test","POST[%s]: %s\n", p->name().c_str(), p->value().c_str());
-  } else {
-    ESP_LOGD("test","GET[%s]: %s\n", p->name().c_str(), p->value().c_str());
-  }
+      std::string keys=buf;
+      if (this->key_service_func_.has_value()) {
+          (*this->key_service_func_)(keys,partition);          
+          return true;
+      } else if (alarmPanel != NULL) {
+          alarmPanel->alarm_keypress_partition(keys,partition);
+          return true;
+      } 
+      return false;
 }    
-  */  
-  /*  if (request->hasParam("body", true)) { // This is important, otherwise the sketch will crash if there is no body
-      int partition=1;
-      StaticJsonDocument<100> doc;    
-      auto err = deserializeJson(doc,request->getParam("body",true)->value());
-      if (!err) {
-          JsonObject root = doc.as<JsonObject>();
-          if (root.containsKey("keys")) {
-            std::string keys = root["keys"];
-            alarmPanel->alarm_keypress_partition(keys,partition);
-            request->send(200);
-          }
-          
-      } else 
-         request->send(405, "text/plain", request->getParam("body", true)->value());
-    } else {
-      request->send(406, "text/plain", "No body?!\n");
-    }
-    return;
-    */
-     if (request->method() == HTTP_GET) {
+
+void WebServer::handle_alarm_panel_request(struct mg_connection *c, void *ev_data, const UrlMatch &match) {
+    
+ struct mg_http_message *hm = (struct mg_http_message *) ev_data;      
+
+    // if (request->method() == HTTP_GET) {
+     if (mg_vcasecmp(&hm->method, "GET") == 0 && match.method=="getconfig") {        
       std::string data = _json_keypad_config;
-      request->send(200, "application/json", data.c_str());
+      //request->send(200, "application/json", data.c_str());
+      mg_http_reply(c, 200, "Content-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n", "%s\n", data.c_str());      
       return;
     }
     
-    
+    if (match.method != "set") {
+       mg_http_reply(c,404,"","");
+      return;
+    }    
+
     int partition=1; //get default partition
-    if (request->hasParam("partition",true)) {
-       auto p = request->getParam("partition",true)->value(); 
-       partition = toInt(p.c_str(),10);
-      //ESP_LOGD("test","got partition %d",partition);         
+    //if (request->hasParam("partition",true)) {
+     //  auto p = request->getParam("partition",true)->value(); 
+    char buf[100];
+    if (mg_http_get_var(&hm->body,"partition",buf,sizeof(buf)) > 0) {
+      partition = toInt(buf,10);
     }
-    if (request->hasParam("keys",true)) {
-      std::string keys = request->getParam("keys",true)->value().c_str();
-      ESP_LOGD("test","got keys %s",keys.c_str());
-        if (this->key_service_func_.has_value()) {
-            (*this->key_service_func_)(keys,partition);          
-            request->send(200);
-      } else if (alarmPanel != NULL) {
-          alarmPanel->alarm_keypress_partition(keys,partition);
-          request->send(200);
-      } else
-          request->send(404);
-            
+   // if (request->hasParam("keys",true)) {
+    //  std::string keys = request->getParam("keys",true)->value().c_str();
+    if (mg_http_get_var(&hm->body,"keys",buf,sizeof(buf)) > 0) {
+       if (callKeyService(buf,partition)) 
+        mg_http_reply(c,200,"Access-Control-Allow-Origin: *\r\n","");
+       else
+        mg_http_reply(c,404,"","");
       return;      
     }
-    
-  request->send(404);
+   mg_http_reply(c,404,"","");
 }
 
 #endif
@@ -1022,41 +1177,50 @@ for(int i=0;i<params;i++){
 
 #ifdef USE_SELECT
 void WebServer::on_select_update(select::Select *obj, const std::string &state, size_t index) {
-  this->events_.send(this->select_json(obj, state, DETAIL_STATE).c_str(), "state");
+  //this->events_.send(this->select_json(obj, state, DETAIL_STATE).c_str(), "state");
+this->push(STATE,this->select_json(obj, state, DETAIL_STATE).c_str());   
 }
-void WebServer::handle_select_request(AsyncWebServerRequest *request, const UrlMatch &match) {
+void WebServer::handle_select_request(struct mg_connection *c, void *ev_data, const UrlMatch &match) {
+ struct mg_http_message *hm = (struct mg_http_message *) ev_data;        
   for (auto *obj : App.get_selects()) {
     if (obj->get_object_id() != match.id)
       continue;
 
-    if (request->method() == HTTP_GET) {
+    //if (request->method() == HTTP_GET) {
+      if (mg_vcasecmp(&hm->method, "GET") == 0) {        
       auto detail = DETAIL_STATE;
-      auto *param = request->getParam("detail");
-      if (param && param->value() == "all") {
+    //  auto *param = request->getParam("detail");
+     char buf[100];    
+    if (mg_http_get_var(&hm->body,"detail",buf,sizeof(buf)) > 0) {
+     std::string detailstr=buf;    
+      if (detailstr == "all") {
         detail = DETAIL_ALL;
       }
       std::string data = this->select_json(obj, obj->state, detail);
-      request->send(200, "application/json", data.c_str());
+      //request->send(200, "application/json", data.c_str());
+      mg_http_reply(c, 200, "Content-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n", "%s", data.c_str());      
       return;
     }
 
     if (match.method != "set") {
-      request->send(404);
+   mg_http_reply(c,404,"","");
       return;
     }
 
     auto call = obj->make_call();
 
-    if (request->hasParam("option")) {
-      auto option = request->getParam("option")->value();
+    if (mg_http_get_var(&hm->body,"option",buf,sizeof(buf)) > 0) {
+     auto option=buf;
+    //if (request->hasParam("option")) {
+     // auto option = request->getParam("option")->value();
       call.set_option(option.c_str());  // NOLINT(clang-diagnostic-deprecated-declarations)
     }
 
     this->schedule_([call]() mutable { call.perform(); });
-    request->send(200);
+   mg_http_reply(c,200,"","");
     return;
   }
-  request->send(404);
+   mg_http_reply(c,404,"","");
 }
 std::string WebServer::select_json(select::Select *obj, const std::string &value, JsonDetail start_config) {
   return json::build_json([obj, value, start_config](JsonObject root) {
@@ -1076,55 +1240,66 @@ std::string WebServer::select_json(select::Select *obj, const std::string &value
 
 #ifdef USE_CLIMATE
 void WebServer::on_climate_update(climate::Climate *obj) {
-  this->events_.send(this->climate_json(obj, DETAIL_STATE).c_str(), "state");
+  //this->events_.send(this->climate_json(obj, DETAIL_STATE).c_str(), "state");
+this->push(STATE,this->climate_json(obj, DETAIL_STATE).c_str());   
 }
 
-void WebServer::handle_climate_request(AsyncWebServerRequest *request, const UrlMatch &match) {
+void WebServer::handle_climate_requeststruct mg_connection *c, void *ev_data, const UrlMatch &match) {
+  struct mg_http_message *hm = (struct mg_http_message *) ev_data;    
   for (auto *obj : App.get_climates()) {
     if (obj->get_object_id() != match.id)
       continue;
 
-    if (request->method() == HTTP_GET) {
+   // if (request->method() == HTTP_GET) {
+    if (mg_vcasecmp(&hm->method, "GET") == 0) {        
       std::string data = this->climate_json(obj, DETAIL_STATE);
-      request->send(200, "application/json", data.c_str());
+      //request->send(200, "application/json", data.c_str());
+      mg_http_reply(c, 200, "Content-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n", "%s", data.c_str());      
       return;
     }
 
     if (match.method != "set") {
-      request->send(404);
+   mg_http_reply(c,404,"","");
       return;
     }
 
     auto call = obj->make_call();
-
-    if (request->hasParam("mode")) {
-      auto mode = request->getParam("mode")->value();
-      call.set_mode(mode.c_str());
+    char buf[100];
+    if (mg_http_get_var(&hm->body,"mode",buf,sizeof(buf)) > 0) {
+    //if (request->hasParam("mode")) {
+     // auto mode = request->getParam("mode")->value();
+      auto mode=buf;
+      call.set_mode(mode);
     }
-
-    if (request->hasParam("target_temperature_high")) {
-      auto target_temperature_high = parse_number<float>(request->getParam("target_temperature_high")->value().c_str());
+    if (mg_http_get_var(&hm->body,"target_temperature_high",buf,sizeof(buf)) > 0) {
+     auto target_temperature_high=buf;
+   // if (request->hasParam("target_temperature_high")) {
+     // auto target_temperature_high = parse_number<float>(request->getParam("target_temperature_high")->value().c_str());
       if (target_temperature_high.has_value())
         call.set_target_temperature_high(*target_temperature_high);
     }
 
-    if (request->hasParam("target_temperature_low")) {
-      auto target_temperature_low = parse_number<float>(request->getParam("target_temperature_low")->value().c_str());
+   // if (request->hasParam("target_temperature_low")) {
+      //auto target_temperature_low = parse_number<float>(request->getParam("target_temperature_low")->value().c_str());
+    if (mg_http_get_var(&hm->body,"target_temperature_low",buf,sizeof(buf)) > 0) {
+     auto target_temperature_low=buf;      
       if (target_temperature_low.has_value())
         call.set_target_temperature_low(*target_temperature_low);
     }
 
-    if (request->hasParam("target_temperature")) {
-      auto target_temperature = parse_number<float>(request->getParam("target_temperature")->value().c_str());
+   // if (request->hasParam("target_temperature")) {
+    //  auto target_temperature = parse_number<float>(request->getParam("target_temperature")->value().c_str());
+    if (mg_http_get_var(&hm->body,"target_temperature",buf,sizeof(buf)) > 0) {
+     auto target_temperature=buf;    
       if (target_temperature.has_value())
         call.set_target_temperature(*target_temperature);
     }
 
     this->schedule_([call]() mutable { call.perform(); });
-    request->send(200);
+   mg_http_reply(c,200,"","");
     return;
   }
-  request->send(404);
+   mg_http_reply(c,404,"","");
 }
 
 std::string WebServer::climate_json(climate::Climate *obj, JsonDetail start_config) {
@@ -1217,7 +1392,8 @@ std::string WebServer::climate_json(climate::Climate *obj, JsonDetail start_conf
 
 #ifdef USE_LOCK
 void WebServer::on_lock_update(lock::Lock *obj) {
-  this->events_.send(this->lock_json(obj, obj->state, DETAIL_STATE).c_str(), "state");
+ // this->events_.send(this->lock_json(obj, obj->state, DETAIL_STATE).c_str(), "state");
+this->push(STATE,this->lock_json(obj, obj->state, DETAIL_STATE).c_str());  
 }
 std::string WebServer::lock_json(lock::Lock *obj, lock::LockState value, JsonDetail start_config) {
   return json::build_json([obj, value, start_config](JsonObject root) {
@@ -1225,35 +1401,39 @@ std::string WebServer::lock_json(lock::Lock *obj, lock::LockState value, JsonDet
                               start_config);
   });
 }
-void WebServer::handle_lock_request(AsyncWebServerRequest *request, const UrlMatch &match) {
+void WebServer::handle_lock_request(struct mg_connection *c, void *ev_data, const UrlMatch &match) {
+ struct mg_http_message *hm = (struct mg_http_message *) ev_data;        
   for (lock::Lock *obj : App.get_locks()) {
     if (obj->get_object_id() != match.id)
       continue;
 
-    if (request->method() == HTTP_GET) {
+    //if (request->method() == HTTP_GET) {
+    if (mg_vcasecmp(&hm->method, "GET") == 0) {        
       std::string data = this->lock_json(obj, obj->state, DETAIL_STATE);
-      request->send(200, "application/json", data.c_str());
+      //request->send(200, "application/json", data.c_str());
+      mg_http_reply(c, 200, "Content-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n", "%s", data.c_str());
     } else if (match.method == "lock") {
       this->schedule_([obj]() { obj->lock(); });
-      request->send(200);
+       mg_http_reply(c,200,"","");
     } else if (match.method == "unlock") {
       this->schedule_([obj]() { obj->unlock(); });
-      request->send(200);
+       mg_http_reply(c,200,"","");
     } else if (match.method == "open") {
       this->schedule_([obj]() { obj->open(); });
-      request->send(200);
+       mg_http_reply(c,200,"","");
     } else {
-      request->send(404);
+       mg_http_reply(c,404,"","");
     }
     return;
   }
-  request->send(404);
+   mg_http_reply(c,404,"","");
 }
 #endif
 
 #ifdef USE_ALARM_CONTROL_PANEL
 void WebServer::on_alarm_control_panel_update(alarm_control_panel::AlarmControlPanel *obj) {
-  this->events_.send(this->alarm_control_panel_json(obj, obj->get_state(), DETAIL_STATE).c_str(), "state");
+ // this->events_.send(this->alarm_control_panel_json(obj, obj->get_state(), DETAIL_STATE).c_str(), "state");
+this->push(STATE,this->alarm_control_panel_json(obj, obj->get_state(), DETAIL_STATE).c_str());  
 }
 std::string WebServer::alarm_control_panel_json(alarm_control_panel::AlarmControlPanel *obj,
                                                 alarm_control_panel::AlarmControlPanelState value,
@@ -1264,242 +1444,379 @@ std::string WebServer::alarm_control_panel_json(alarm_control_panel::AlarmContro
                               PSTR_LOCAL(alarm_control_panel_state_to_string(value)), value, start_config);
   });
 }
-void WebServer::handle_alarm_control_panel_request(AsyncWebServerRequest *request, const UrlMatch &match) {
+void WebServer::handle_alarm_control_panel_request(struct mg_connection *c, void *ev_data, const UrlMatch &match) {
+ struct mg_http_message *hm = (struct mg_http_message *) ev_data;     
   for (alarm_control_panel::AlarmControlPanel *obj : App.get_alarm_control_panels()) {
     if (obj->get_object_id() != match.id)
       continue;
-
-    if (request->method() == HTTP_GET) {
+   // if (request->method() == HTTP_GET) {
+      if (mg_vcasecmp(&hm->method, "GET") == 0) {
       std::string data = this->alarm_control_panel_json(obj, obj->get_state(), DETAIL_STATE);
-      request->send(200, "application/json", data.c_str());
+      mg_http_reply(c, 200, "Content-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n", "%s", data.c_str());
+      //request->send(200, "application/json", data.c_str());
       return;
     }
   }
-  request->send(404);
+  //request->send(404);
+   mg_http_reply(c,404,"","");
 }
 #endif
 
-bool WebServer::canHandle(AsyncWebServerRequest *request) {
-  if (request->url() == "/")
-    return true;
-
-#ifdef USE_WEBSERVER_CSS_INCLUDE
-  if (request->url() == "/0.css")
-    return true;
-#endif
-
-#ifdef USE_WEBSERVER_JS_INCLUDE
-  if (request->url() == "/0.js")
-    return true;
-#endif
-
-#ifdef USE_WEBSERVER_PRIVATE_NETWORK_ACCESS
-  if (request->method() == HTTP_OPTIONS && request->hasHeader(HEADER_CORS_REQ_PNA)) {
-#ifdef USE_ARDUINO
-    // Header needs to be added to interesting header list for it to not be
-    // nuked by the time we handle the request later.
-    // Only required in Arduino framework.
-    request->addInterestingHeader(HEADER_CORS_REQ_PNA);
-#endif
-    return true;
+void WebServer::push(msgType mt, const char *data,uint32_t id,uint32_t reconnect) {
+  struct mg_connection *c;
+  std::string msg=data;
+  std::string type;
+  switch (mt) {
+      case PING: type="ping";break;
+      case STATE: type="state";break;
+      case LOG:   type="log";break;
+      case CONFIG: type="config";break;
+      case OTA:    type="ota";break;
+      default: type="";break;
   }
-#endif
-
-  UrlMatch match = match_url(request->url().c_str(), true);
-  if (!match.valid)
-    return false;
-#ifdef USE_SENSOR
-  if (request->method() == HTTP_GET && match.domain == "sensor")
-    return true;
-#endif
-
-#ifdef USE_SWITCH
-  if ((request->method() == HTTP_POST || request->method() == HTTP_GET) && match.domain == "switch")
-    return true;
-#endif
-
-#ifdef USE_BUTTON
-  if (request->method() == HTTP_POST && match.domain == "button")
-    return true;
-#endif
-
-#ifdef USE_BINARY_SENSOR
-  if (request->method() == HTTP_GET && match.domain == "binary_sensor")
-    return true;
-#endif
-
-#ifdef USE_FAN
-  if ((request->method() == HTTP_POST || request->method() == HTTP_GET) && match.domain == "fan")
-    return true;
-#endif
-
-#ifdef USE_LIGHT
-  if ((request->method() == HTTP_POST || request->method() == HTTP_GET) && match.domain == "light")
-    return true;
-#endif
-
-#ifdef USE_TEXT_SENSOR
-  if (request->method() == HTTP_GET && match.domain == "text_sensor")
-    return true;
-#endif
-
-#ifdef USE_COVER
-  if ((request->method() == HTTP_POST || request->method() == HTTP_GET) && match.domain == "cover")
-    return true;
-#endif
-
-#ifdef USE_NUMBER
-  if ((request->method() == HTTP_POST || request->method() == HTTP_GET) && match.domain == "number")
-    return true;
-#endif
-
-#ifdef USE_TEXT
-  if ((request->method() == HTTP_POST || request->method() == HTTP_GET) && match.domain == "text")
-    return true;
-#endif
-
-#ifdef USE_SELECT
-  if ((request->method() == HTTP_POST || request->method() == HTTP_GET) && match.domain == "select")
-    return true;
-#endif
-
-#ifdef USE_CLIMATE
-  if ((request->method() == HTTP_POST || request->method() == HTTP_GET) && match.domain == "climate")
-    return true;
-#endif
-
-#ifdef USE_LOCK
-  if ((request->method() == HTTP_POST || request->method() == HTTP_GET) && match.domain == "lock")
-    return true;
-#endif
-
-#ifdef USE_CUSTOM_ID
-  if ((request->method() == HTTP_POST || request->method() == HTTP_GET) && match.domain == "alarm_panel")
-    return true;
-#endif
-
-#ifdef USE_ALARM_CONTROL_PANEL
-  if (request->method() == HTTP_GET && match.domain == "alarm_control_panel")
-    return true;
-#endif
-
-  return false;
+  for (c = mgr.conns; c != NULL; c = c->next) {
+    if (c->data[0] =='E') {
+         if (id && reconnect)
+           mg_printf(c,"id: %d\r\nretry: %d\r\nevent: %s\r\ndata: %s\r\n\r\n",id,reconnect,type.c_str(), msg.c_str());
+        else
+           mg_printf(c,"event: %s\r\ndata: %s\r\n\r\n",type.c_str(), msg.c_str());
+   }       
+      
+    if (c->data[0] != 'W') continue;     
+    if (mt==PING) 
+         mg_ws_printf(c, WEBSOCKET_OP_TEXT, "{\"%s\":\"%s\",\"%s\":\"%d\"}", "type",type.c_str(),"data",id); 
+    else if (mt==STATE ) 
+        mg_ws_printf(c, WEBSOCKET_OP_TEXT, "{\"%s\":\"%s\",\"%s\":%s}", "type",type.c_str(),"data", msg.c_str());    
+    else if(mt==LOG )
+         mg_ws_printf(c, WEBSOCKET_OP_TEXT, "{\"%s\":\"%s\",\"%s\":\"%s\"}", "type",type.c_str(),"data", msg.c_str());
+    else if (mt==CONFIG )
+         mg_ws_printf(c, WEBSOCKET_OP_TEXT, "{\"%s\":\"%s\",\"%s\":%s}", "type",type.c_str(),"data", msg.c_str());
+    else if (mt==OTA )
+         mg_ws_printf(c, WEBSOCKET_OP_TEXT, "{\"%s\":\"%s\",\"%s\":\"%s\"}", "type",type.c_str(),"data", msg.c_str());     
+  }
 }
-void WebServer::handleRequest(AsyncWebServerRequest *request) {
-  if (request->url() == "/") {
-    this->handle_index_request(request);
+   
+
+size_t getMultipart(struct mg_str body, size_t ofs,
+                              struct mg_http_part *part) {
+  struct mg_str cd = mg_str_n("Content-Disposition", 19);
+  const char *s = body.ptr;
+  size_t b = ofs, h1, h2, b1, b2, max = body.len;
+
+  // Init part params
+  if (part != NULL) part->name = part->filename = part->body = mg_str_n(0, 0);
+
+  while ((b + 2) < max && s[b] != '\r' && s[b + 1] != '\n') b++;
+  if (b <= ofs || ( b + 2) >= max || (s[0] != '-' && s[1] !='-')) return 0;
+ //  MG_INFO(("B: %lu %lu [%.*s]", ofs, b - ofs, (int) (b - ofs), s));
+
+  // Skip headers
+  h1 = h2 = b + 2;
+  for (;;) {
+    while (h2 + 2 < max && s[h2] != '\r' && s[h2 + 1] != '\n') h2++;
+    if (h2 == h1) break;
+    if (h2 + 2 >= max) return 0;
+   //  MG_INFO(("Header: [%.*s]", (int) (h2 - h1), &s[h1]));
+    if (part != NULL && h1 + cd.len + 2 < h2 && s[h1 + cd.len] == ':' &&
+        mg_ncasecmp(&s[h1], cd.ptr, cd.len) == 0) {
+      struct mg_str v = mg_str_n(&s[h1 + cd.len + 2], h2 - (h1 + cd.len + 2));
+      part->name = mg_http_get_header_var(v, mg_str_n("name", 4));
+      part->filename = mg_http_get_header_var(v, mg_str_n("filename", 8));
+    }
+    h1 = h2 = h2 + 2;
+  }
+  b1 = b2 = h2 + 2;
+  //MG_INFO(("B2: %lu [%.*s]",b1,  10, &s[b2]));  
+ 
+ return b2;
+
+}        
+
+char WebServer::matchBuf[MATCH_BUF_SIZE];
+uint8_t WebServer::matchIndex=0;
+
+void WebServer::ev_handler(struct mg_connection *c, int ev, void *ev_data, void *fn_data) {
+    WebServer * srv=static_cast<WebServer*>(webServerPtr);
+    bool final=false;
+    if (ev == MG_EV_WS_MSG) {
+        // Got websocket frame. Received data is wm->data. Echo it back!
+            struct mg_ws_message *wm = (struct mg_ws_message *) ev_data;
+            DynamicJsonDocument doc(100);
+            char buf[wm->data.len + 1];
+            strncpy(buf,wm->data.ptr,wm->data.len);
+            buf[wm->data.len]=0;
+            deserializeJson(doc,buf);
+            std::string key=doc["key"];
+            int partition=doc["partition"];
+            srv->callKeyService(key.c_str(),partition);
+            
+            //mg_ws_send(c, wm->data.ptr, wm->data.len, WEBSOCKET_OP_TEXT);
+    } else if (ev == MG_EV_READ && !c->is_websocket && c->data[0] != 'E') {
+    // Parse the incoming data ourselves. If we can parse the request,
+    // store two size_t variables in the c->data: expected len and recv len.
+    size_t *data = (size_t *) c->data;
+    if (data[0]  ) {  // Already parsed, simply print received data
+     if (data[2] >= c->recv.len) {
+         data[0]=0;
+         c->recv.len = 0;          
+          srv->push(OTA,"OTA update failed... Please try again.");
+          mg_http_reply(c, 200, "Content-Type: text/html\r\nAccess-Control-Allow-Origin: *\r\n\r\n", "FAIL\r");         
+         return;
+     }
+     size_t ml=strlen(matchBuf);
+     char *b = (char *) c->recv.buf + data[2];
+     size_t bl = c->recv.len - data[2];
+ 
+
+     size_t x=0;
+     for (x;x<bl;x++) {
+         bool firstLoop=1;
+         for (size_t y=matchIndex;y<ml;y++) {
+            
+           if ((y+x)>= bl) 
+               break;
+
+           if (b[y+x] ==  matchBuf[y]) {
+              matchIndex++;
+           } else {
+               if (x==0 && matchIndex>0 && firstLoop) {
+                   srv->handleUpload(data[0],"upload.bin",data[1],(uint8_t*)matchBuf,matchIndex,final);
+                   data[1]+=matchIndex;
+                   MG_INFO(("***** save partial matched data bindex=%lu, index=%lu -  [%.*s]",matchIndex,data[1],matchIndex,matchBuf));
+                }
+               matchIndex=0;               
+               break;
+           }
+           firstLoop=false;
+         }
+         if (matchIndex) break;
+     }
+
+      if (matchIndex==ml && ml > 0) {
+             matchIndex=0;
+             final=true;
+        MG_INFO(("**********Final  bytes %lu, final=%d, data0=%lu, total=%lu, data1=%lu",x,final,data[0],x+data[1],data[1]));              
+        } 
+      
+      data[2]=0;  
+      c->recv.len = 0;  // And cleanup the receive buffer. Streaming!
+      bool res=true;
+
+       res=srv->handleUpload(data[0],"upload.bin",data[1],(uint8_t*)b,x,final); 
+  
+      if (!res) {
+        data[0]=0;
+        mg_http_reply(c, 200, "Content-Type: text/html\r\nAccess-Control-Allow-Origin: *\r\n\r\n", "FAIL\r"); 
+        return;
+      }
+      data[1] += x;      
+
+      if (final || data[1] >= data[0]) {
+        data[0]=0;
+        data[1]=0;
+        mg_http_reply(c, 200, "Content-Type: text/html\r\nAccess-Control-Allow-Origin: *\r\n\r\n", "OK\r"); 
+        return;
+      }
+     
+    } else {
+      struct mg_http_message hm;
+      int n = mg_http_parse((char *) c->recv.buf, c->recv.len, &hm);
+      if (n < 0) mg_error(c, "Bad response");
+      if (n > 0) {
+        if (mg_http_match_uri(&hm, "/update")) {
+          struct mg_str *ct = mg_http_get_header(&hm, "Content-Type");
+          struct mg_str boundary = mg_str("");           
+          if (ct != NULL) {
+            boundary = mg_http_get_header_var(*ct, mg_str("boundary"));  
+            MG_INFO(("before boundary check"));
+            if (boundary.ptr != NULL && boundary.len > 0) {
+             matchBuf[0]=13;
+             matchBuf[1]=10;
+             matchBuf[2]='-';
+             matchBuf[3]='-';             
+             memcpy(matchBuf+4,(char*) boundary.ptr, boundary.len);
+             //matchBuf[boundary.len+4]='-';
+            // matchBuf[boundary.len+5]='-';
+             matchBuf[boundary.len+4]=0;
+             MG_INFO(("datasize=%lu,len=%lu,boundary=[%.*s],sizeofdata=%lu,st=%lu",MG_DATA_SIZE,strlen(matchBuf),strlen(matchBuf),matchBuf,sizeof(c->data),sizeof(c->data[0])));
+             matchIndex=0;
+            } else
+                return;
+         } else 
+            return;   
+          struct mg_http_part part;
+          size_t ofs = 0; 
+          ofs=getMultipart(hm.body, ofs, &part);
+          if (ofs > 0  && part.filename.len) { 
+         MG_INFO(("Chunk name: [%.*s] filename: [%.*s] length: %lu bytes,ofs=%lu",
+                 (int) part.name.len, part.name.ptr, (int) part.filename.len,
+                 part.filename.ptr, (unsigned long) hm.body.len,ofs));          
+
+          data[0] = hm.body.len  - ofs -  (strlen(matchBuf)+4);//total len + 2 boundary headers including terminating --\r\n
+          data[1] = 0;//byte counter
+          data[2] = n + ofs; //initial offset
+          MG_INFO(("Got chunk len %lu,data0=%lu,data1=%lu,data2=%lu", 0,data[0],data[1],data[2]));          
+          }
+  
+        } 
+      }
+    }
+
+  }  else if (ev == MG_EV_HTTP_MSG) { 
+        struct mg_http_message *hm = (struct mg_http_message *) ev_data;
+        if (mg_http_match_uri(hm, "/ws") && c->data[0] != 'E') {
+      // Upgrade to websocket. From now on, a connection is a full-duplex
+      // Websocket connection, which will receive MG_EV_WS_MSG events.
+            mg_ws_upgrade(c, hm, NULL);
+            c->data[0] = 'W'; 
+            mg_ws_printf(c, WEBSOCKET_OP_TEXT, "{\"%s\":\"%s\",\"%s\":%s}", "type","app_config","data", srv->get_config_json().c_str());
+            mg_ws_printf(c, WEBSOCKET_OP_TEXT, "{\"%s\":\"%s\",\"%s\":%s}", "type","key_config","data", srv->_json_keypad_config);        
+            srv->entities_iterator_.begin(srv->include_internal_);
+        
+        }  else  if (mg_http_match_uri(hm, "/events") && !c->is_websocket) {
+            mg_str *hdr =mg_http_get_header(hm, "Accept"); 
+            if (hdr != NULL && mg_strstr(*hdr, mg_str("text/event-stream")) != NULL)  {
+              c->data[0]='E';
+              mg_printf(c, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: keep-alive\r\nAccess-Control-Allow-Origin: *\r\n\r\ndata: %s\r\n\r\n", "Subscribed to Events");
+              c->is_resp=0;
+              mg_printf(c,"id: %d\r\nretry: %d\r\nevent: %s\r\ndata: %s\r\n\r\n",millis(),30000,"ping", srv->get_config_json().c_str());   
+              mg_printf(c,"event: %s\r\ndata: %s\r\n\r\n","key_config", srv-> _json_keypad_config);   
+               srv->entities_iterator_.begin(srv->include_internal_);
+            } else
+                mg_http_reply(c, 404,"", ""); 
+        
+        } else {
+            srv->handleRequest(c,hm);
+        }
+  } 
+       (void) fn_data, (void) ev_data;
+}
+
+
+void WebServer::handleRequest(struct mg_connection *c,void *ev_data) {
+   struct mg_http_message *hm = (struct mg_http_message *) ev_data;    
+  //if (request->url() == "/")
+  if (mg_http_match_uri(hm, "/")) { 
+    this->handle_index_request(c);
     return;
   }
 
 #ifdef USE_WEBSERVER_CSS_INCLUDE
-  if (request->url() == "/0.css") {
-    this->handle_css_request(request);
+  //if (request->url() == "/0.css") {
+  if (mg_http_match_uri(hm, "/0.css")) {       
+    this->handle_css_request(c);
     return;
   }
 #endif
 
 #ifdef USE_WEBSERVER_JS_INCLUDE
-  if (request->url() == "/0.js") {
-    this->handle_js_request(request);
+  if (mg_http_match_uri(hm, "/0.js")) { 
+  //if (request->url() == "/0.js") {
+    this->handle_js_request(c);
     return;
   }
 #endif
 
 #ifdef USE_WEBSERVER_PRIVATE_NETWORK_ACCESS
-  if (request->method() == HTTP_OPTIONS && request->hasHeader(HEADER_CORS_REQ_PNA)) {
-    this->handle_pna_cors_request(request);
+  //if (request->method() == HTTP_OPTIONS && request->hasHeader(HEADER_CORS_REQ_PNA)) {
+   // this->handle_pna_cors_request(c);
+   // return;
+  //}
+   mg_str *hdr =mg_http_get_header(hm, HEADER_CORS_REQ_PNA); 
+   if (mg_vcasecmp(&hm->method, "OPTIONS") == 0 && hdr != NULL) {  
+    this->handle_pna_cors_request(c);
     return;
-  }
-#endif
+   }   
 
-  UrlMatch match = match_url(request->url().c_str());
+#endif
+ UrlMatch match = match_url(&hm->uri);
+
 #ifdef USE_SENSOR
   if (match.domain == "sensor") {
-    this->handle_sensor_request(request, match);
+    this->handle_sensor_request(c, ev_data, match);
     return;
   }
 #endif
 
 #ifdef USE_SWITCH
   if (match.domain == "switch") {
-    this->handle_switch_request(request, match);
+    this->handle_switch_request(c, ev_data, match);
     return;
   }
 #endif
 
 #ifdef USE_BUTTON
   if (match.domain == "button") {
-    this->handle_button_request(request, match);
+    this->handle_button_request(c, ev_data, match);
     return;
   }
 #endif
 
 #ifdef USE_BINARY_SENSOR
   if (match.domain == "binary_sensor") {
-    this->handle_binary_sensor_request(request, match);
+    this->handle_binary_sensor_request(c, ev_data, match);
     return;
   }
 #endif
-
 #ifdef USE_FAN
   if (match.domain == "fan") {
-    this->handle_fan_request(request, match);
+    this->handle_fan_request(c, ev_data, match);
     return;
   }
 #endif
 
 #ifdef USE_LIGHT
   if (match.domain == "light") {
-    this->handle_light_request(request, match);
+    this->handle_light_request(c, ev_data, match);
     return;
   }
 #endif
 
 #ifdef USE_TEXT_SENSOR
   if (match.domain == "text_sensor") {
-    this->handle_text_sensor_request(request, match);
+    this->handle_text_sensor_request(c, ev_data, match);
     return;
   }
 #endif
 
 #ifdef USE_COVER
   if (match.domain == "cover") {
-    this->handle_cover_request(request, match);
+    this->handle_cover_request(c, ev_data, match);
     return;
   }
 #endif
 
 #ifdef USE_NUMBER
   if (match.domain == "number") {
-    this->handle_number_request(request, match);
+    this->handle_number_request(c, ev_data, match);
     return;
   }
 #endif
 
 #ifdef USE_TEXT
   if (match.domain == "text") {
-    this->handle_text_request(request, match);
+    this->handle_text_request(c, ev_data, match);
     return;
   }
 #endif
 
 #ifdef USE_SELECT
   if (match.domain == "select") {
-    this->handle_select_request(request, match);
+    this->handle_select_request(c, ev_data, match);
     return;
   }
 #endif
 
 #ifdef USE_CLIMATE
   if (match.domain == "climate") {
-    this->handle_climate_request(request, match);
+    this->handle_climate_request(c, ev_data, match);
     return;
   }
 #endif
 
 #ifdef USE_LOCK
   if (match.domain == "lock") {
-    this->handle_lock_request(request, match);
+    this->handle_lock_request(c, ev_data, match);
 
     return;
   }
@@ -1508,20 +1825,20 @@ void WebServer::handleRequest(AsyncWebServerRequest *request) {
 
 #if defined(USE_DSC_PANEL) || defined(USE_VISTA_PANEL)
   if (match.domain == "alarm_panel") {
-    this->handle_alarm_panel_request(request, match);
+    this->handle_alarm_panel_request(c, ev_data, match);
     return;
   }
 #endif
 
 #ifdef USE_ALARM_CONTROL_PANEL
   if (match.domain == "alarm_control_panel") {
-    this->handle_alarm_control_panel_request(request, match);
+    this->handle_alarm_control_panel_request(c, ev_data, match);
     return;
   }
 #endif
-}
 
-bool WebServer::isRequestHandlerTrivial() { return false; }
+   mg_http_reply(c,404,"","");
+}
 
 void WebServer::schedule_(std::function<void()> &&f) {
 #ifdef USE_ESP32
@@ -1531,6 +1848,83 @@ void WebServer::schedule_(std::function<void()> &&f) {
 #else
   this->defer(std::move(f));
 #endif
+}
+
+void WebServer::report_ota_error() {
+#ifdef USE_ARDUINO
+  StreamString ss;
+  Update.printError(ss);
+  char buf[100];
+  ESP_LOGW(TAG, "OTA Update failed! Error: %s", ss.c_str());  
+  snprintf(buf,100,"OTA Update failed! Error: %s", ss.c_str());
+  std::string ebuf=escape_json(buf);
+  this->push(OTA,ebuf.c_str());
+#endif
+}
+
+bool WebServer::handleUpload(size_t bodylen,  const String &filename, size_t index,uint8_t *data, size_t len, bool final) {
+    char buf[100];                                    
+#ifdef USE_ARDUINO
+  bool success;
+  if (index == 0) {
+    snprintf(buf,100,"OTA Update Start: %s", filename.c_str());
+    this->push(OTA,buf);
+    ESP_LOGI(TAG, "OTA Update Start: %s", filename.c_str());
+
+    this->ota_read_length_ = 0;
+
+    if (Update.isRunning()) {
+      Update.abort();
+      return false;
+    }
+    success = Update.begin(UPDATE_SIZE_UNKNOWN, U_FLASH);
+
+    if (!success) {
+      report_ota_error();
+      return false;
+    }
+  } else if (Update.hasError()) {
+     this->push(OTA,"OTA Update has error");      
+    // don't spam logs with errors if something failed at start
+    return false;
+  }
+
+  success = Update.write(data, len) == len;
+  if (!success) {
+    report_ota_error();
+    return false;
+  }
+  this->ota_read_length_ += len;
+
+  const uint32_t now = millis();
+  if (now - this->last_ota_progress_ > 1000) {
+    if (bodylen != 0) {
+      float percentage = (this->ota_read_length_ * 100.0f) / bodylen;
+      ESP_LOGD(TAG, "OTA in progress: %0.1f%%", percentage);
+      snprintf(buf,100,"OTA in progress: %0.1f%%", percentage);
+      this->push(OTA,buf);
+    } else {
+      ESP_LOGD(TAG, "OTA in progress: %u bytes read", this->ota_read_length_);
+      snprintf(buf,100, "OTA in progress: %u bytes read", this->ota_read_length_); 
+      this->push(OTA,buf);      
+    }
+
+    this->last_ota_progress_ = now;
+  }
+
+  if (final) {
+    if (Update.end(true)) {
+      ESP_LOGI(TAG, "OTA update successful!");
+      this->push(OTA,"OTA Update successful. Press F5 to reload this page.");      
+      this->set_timeout(1000, []() { App.safe_reboot(); });
+      return true;
+    } else {
+      report_ota_error();
+      return false;
+    }
+  }
+#endif
+return true;
 }
 
 }  // namespace web_server
