@@ -30,6 +30,7 @@ void disconnectVista() {
 
  
 #if !defined(ARDUINO_MQTT)
+#include "esphome.h"
 namespace esphome {
 namespace alarm_panel {
     
