@@ -456,7 +456,7 @@ class vistaECPHome : public time::RealTimeClock
 
 #if defined(AUTOPOPULATE)
       std::vector<zoneNameType> autoZones{};
-      void fetchPanelZones()
+      void fetchPanelZones();
 #endif
 
           zoneType nz;
